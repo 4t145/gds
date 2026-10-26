@@ -224,13 +224,19 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.file_operation_in_progress || self.settings_open || self.collection.is_some() {
+        if self.file_operation_in_progress
+            || self.settings_open
+            || self.collection.is_some()
+            || !self.device_path_accepts_task(&destination, cx)
+        {
             return;
         }
         let clipboard = Bridge::new(cx);
         let read = clipboard.read(cx);
         let origin_tab = self.active_id;
         self.file_operation_in_progress = true;
+        // Until the clipboard arrives, the source volumes are unknown.
+        self.file_operation_paths.clear();
         notifications::Operation::start(i18n::text("paste-working", cx), cx);
         cx.spawn_in(window, async move |this, cx| {
             let snapshot = match read.await {
@@ -268,6 +274,25 @@ impl Browser {
                 failures: Vec::new(),
             };
             let _ = this.update_in(cx, |browser, window, cx| {
+                if paste
+                    .pending
+                    .iter()
+                    .any(|path| !browser.device_path_available(path, cx))
+                    || !browser.device_path_available(&paste.destination, cx)
+                {
+                    browser.fail_paste(
+                        i18n::text("device-path-unavailable", cx).to_string(),
+                        notifications::Level::Error,
+                        cx,
+                    );
+                    return;
+                }
+                browser.file_operation_paths = paste
+                    .pending
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(paste.destination.clone()))
+                    .collect();
                 browser.inspect_paste(paste, window, cx);
             });
         })
@@ -322,6 +347,20 @@ impl Browser {
     }
 
     fn execute_paste(&mut self, paste: Paste, window: &mut Window, cx: &mut Context<Self>) {
+        if paste
+            .pending
+            .iter()
+            .any(|path| !self.device_path_available(path, cx))
+            || !self.device_path_available(&paste.destination, cx)
+        {
+            self.abort_paste(
+                paste,
+                i18n::text("device-path-unavailable", cx).to_string(),
+                window,
+                cx,
+            );
+            return;
+        }
         let count = paste.pending.len();
         let request = transfer::Request {
             paths: paste.pending.clone(),

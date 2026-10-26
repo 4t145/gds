@@ -282,6 +282,20 @@ impl Navigation {
         self.pending = None;
     }
 
+    /// Cancel only this read; a later navigation keeps ownership of its result.
+    pub fn cancel_request(&mut self, request: &LoadRequest) -> bool {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.id == request.id)
+        {
+            self.pending = None;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Commit a completed background read to the originating tab.
     ///
     /// Stale completions, including their errors, are explicitly ignored. The

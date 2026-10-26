@@ -27,6 +27,8 @@ gpui_kit::actions!(
         PasteFiles,
         CopyFilePaths,
         SelectAllFiles,
+        DeselectAll,
+        SelectionMenu,
         RenameSelection,
         ToggleDetails,
         TrashSelection,
@@ -37,6 +39,8 @@ gpui_kit::actions!(
         PurgeSelection,
         EmptyTrash,
         ClearRecent,
+        MountVolume,
+        UnmountVolume,
         TabPrefixHome,
         TabPrefixRecent,
         TabPrefixFavorites,
@@ -65,6 +69,8 @@ pub const TAB_PREFIX_CONTEXT: &str = "TabPrefix";
 /// Key context of the settings workspace, active while settings replace the
 /// file workspace. Bindings here keep shortcuts from leaking between the two.
 pub const SETTINGS_CONTEXT: &str = "Settings";
+/// Operations on the selected volume or the visible fixed volume page.
+pub const VOLUME_CONTEXT: &str = "Volume";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Command {
@@ -91,6 +97,8 @@ pub enum Command {
     Paste,
     CopyPaths,
     SelectAll,
+    DeselectAll,
+    ContextMenu,
     Rename,
     Details,
     Columns,
@@ -100,11 +108,13 @@ pub enum Command {
     PurgeSelection,
     EmptyTrash,
     ClearRecent,
+    MountVolume,
+    UnmountVolume,
     Cancel,
 }
 
 impl Command {
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 36] = [
         Self::Menu,
         Self::Settings,
         Self::NewTab,
@@ -128,6 +138,8 @@ impl Command {
         Self::Paste,
         Self::CopyPaths,
         Self::SelectAll,
+        Self::DeselectAll,
+        Self::ContextMenu,
         Self::Rename,
         Self::Details,
         Self::Columns,
@@ -137,6 +149,8 @@ impl Command {
         Self::PurgeSelection,
         Self::EmptyTrash,
         Self::ClearRecent,
+        Self::MountVolume,
+        Self::UnmountVolume,
     ];
 
     pub fn label_id(self) -> &'static str {
@@ -164,6 +178,8 @@ impl Command {
             Self::Paste => "paste-files",
             Self::CopyPaths => "copy-path",
             Self::SelectAll => "select-all",
+            Self::DeselectAll => "deselect-all",
+            Self::ContextMenu => "selection-menu",
             Self::Rename => "rename",
             Self::Details => "details-toggle",
             Self::Columns => "columns-configure",
@@ -173,6 +189,8 @@ impl Command {
             Self::PurgeSelection => "delete-permanently",
             Self::EmptyTrash => "recycle-empty-action",
             Self::ClearRecent => "clear-recent",
+            Self::MountVolume => "device-mount",
+            Self::UnmountVolume => "device-unmount",
             Self::Cancel => "close",
         }
     }
@@ -202,6 +220,8 @@ impl Command {
             Self::Paste => Box::new(PasteFiles),
             Self::CopyPaths => Box::new(CopyFilePaths),
             Self::SelectAll => Box::new(SelectAllFiles),
+            Self::DeselectAll => Box::new(DeselectAll),
+            Self::ContextMenu => Box::new(SelectionMenu),
             Self::Rename => Box::new(RenameSelection),
             Self::Details => Box::new(ToggleDetails),
             Self::Columns => Box::new(ConfigureColumns),
@@ -211,6 +231,8 @@ impl Command {
             Self::PurgeSelection => Box::new(PurgeSelection),
             Self::EmptyTrash => Box::new(EmptyTrash),
             Self::ClearRecent => Box::new(ClearRecent),
+            Self::MountVolume => Box::new(MountVolume),
+            Self::UnmountVolume => Box::new(UnmountVolume),
             Self::Cancel => Box::new(Cancel),
         }
     }
@@ -218,6 +240,7 @@ impl Command {
     pub fn context(self) -> Option<&'static str> {
         match self {
             Self::Settings | Self::Terminal | Self::Sidebar | Self::Cancel => None,
+            Self::MountVolume | Self::UnmountVolume => Some(VOLUME_CONTEXT),
             _ => Some(WORKSPACE_CONTEXT),
         }
     }
@@ -268,6 +291,8 @@ impl Command {
             Self::Paste => "ctrl-v",
             Self::CopyPaths => "ctrl-shift-c",
             Self::SelectAll => "ctrl-a",
+            Self::DeselectAll => "ctrl-shift-a",
+            Self::ContextMenu => "shift-f10",
             Self::Rename => "f2",
             Self::Details => "ctrl-p",
             Self::Columns => "alt-v",
@@ -277,6 +302,8 @@ impl Command {
             Self::PurgeSelection => "alt-d",
             Self::EmptyTrash => "alt-shift-d",
             Self::ClearRecent => "alt-c",
+            Self::MountVolume => "ctrl-m",
+            Self::UnmountVolume => "ctrl-shift-m",
             Self::Cancel => "escape",
         }
     }
@@ -331,6 +358,20 @@ fn bindings() -> Vec<KeyBinding> {
         .chain(primary)
         .chain(settings)
         .chain(tab_prefix_bindings())
+        // Popup cancellation must win over the workspace's global Escape.
+        // Otherwise it moves focus behind a menu while leaving that menu open.
+        .chain([
+            action_binding(
+                "escape",
+                Box::new(gpui_kit::base::actions::Cancel),
+                Some("PopupMenu"),
+            ),
+            action_binding(
+                "enter",
+                Box::new(gpui_kit::base::actions::Confirm { secondary: false }),
+                Some("PopupMenu"),
+            ),
+        ])
         .collect()
 }
 

@@ -281,6 +281,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         if self.file_operation_in_progress
+            || !self.device_path_accepts_task(&destination, cx)
             || self.settings_open
             || self.collection.is_some()
             || window.has_active_dialog(cx)
@@ -292,6 +293,7 @@ impl Browser {
         };
         let default = i18n::text("new-folder-default-name", cx).to_string();
         self.file_operation_in_progress = true;
+        self.file_operation_paths = vec![destination.clone()];
         // Suggesting a name probes the destination; a slow or network mount
         // must not block the UI while the dialog is being prepared.
         let directory = destination.clone();
@@ -345,6 +347,12 @@ impl Browser {
     }
 
     fn start_new_folder(&mut self, request: Request, origin_tab: u64, cx: &mut Context<Self>) {
+        if !self.device_path_available(&request.directory, cx) {
+            self.file_operation_in_progress = false;
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            cx.notify();
+            return;
+        }
         notifications::Operation::start(i18n::text("new-folder-working", cx), cx);
         let work = cx
             .background_executor()

@@ -45,6 +45,12 @@ fn saves_and_reloads_the_complete_preferences_including_cleared_language() {
     preferences.font.family = Some("Noto Sans".to_owned());
     preferences.font.size = 18.0;
     preferences.files.show_hidden = true;
+    preferences.files.sidebar.tabs_height = Some(284.);
+    preferences.files.sidebar.volumes_collapsed = true;
+    preferences
+        .files
+        .volume_mount_points
+        .insert("filesystem-identity".into(), "/nix/store".into());
     preferences.files.columns = Layout::new([
         Column::Name,
         Column::Owner,

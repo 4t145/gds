@@ -2,11 +2,13 @@ use gds::actions::{ApplicationMenu, Command};
 
 use super::MenuEntry;
 
-/// The toolbar menu offers settings and the application's own about entry,
-/// once each, and only settings is tied to a workspace command.
+/// Only settings is tied to a workspace command.
 #[test]
-fn menu_rows_are_settings_then_about() {
-    assert_eq!(MenuEntry::ROWS, [MenuEntry::Settings, MenuEntry::About]);
+fn menu_rows_offer_settings_devices_and_about() {
+    assert_eq!(
+        MenuEntry::ROWS,
+        [MenuEntry::Settings, MenuEntry::Volumes, MenuEntry::About]
+    );
     assert_eq!(MenuEntry::Settings.command(), Some(Command::Settings));
     assert_eq!(MenuEntry::About.command(), None);
     assert!(

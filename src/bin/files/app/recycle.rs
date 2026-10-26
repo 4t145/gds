@@ -43,6 +43,7 @@ pub(super) struct State {
     cursor: Option<OsString>,
     anchor: Option<OsString>,
     busy: bool,
+    task_paths: Vec<PathBuf>,
     table: Entity<TableState<TrashTable>>,
     supported: bool,
 }
@@ -62,6 +63,7 @@ impl State {
             cursor: None,
             anchor: None,
             busy: false,
+            task_paths: Vec::new(),
             table: TrashTable::make_state(browser, window, cx),
             supported: backend::supported(),
         }
@@ -77,6 +79,10 @@ impl State {
 
     pub(super) fn is_busy(&self) -> bool {
         self.busy
+    }
+
+    pub(super) fn task_paths(&self) -> &[PathBuf] {
+        &self.task_paths
     }
 
     /// Whether retrying a failed listing can help on this platform.
@@ -96,6 +102,10 @@ impl State {
         self.selected.clone()
     }
 
+    pub(super) fn scroll_handle(&self, cx: &App) -> UniformListScrollHandle {
+        self.table.read(cx).vertical_scroll_handle.clone()
+    }
+
     /// Frozen entries in list order.
     ///
     /// Two records that share an original path stay two independent targets.
@@ -111,7 +121,7 @@ impl State {
         self.entries.iter().position(|entry| &entry.id == id)
     }
 
-    fn cursor_index(&self) -> Option<usize> {
+    pub(super) fn cursor_index(&self) -> Option<usize> {
         self.cursor.as_ref().and_then(|id| self.index_of(id))
     }
 
@@ -155,10 +165,14 @@ impl State {
     fn fail(&mut self, message: String) {
         self.loading = false;
         self.entries = Arc::from([]);
+        self.clear_selection();
+        self.error = Some(message);
+    }
+
+    pub(super) fn clear_selection(&mut self) {
         self.selected.clear();
         self.cursor = None;
         self.anchor = None;
-        self.error = Some(message);
     }
 
     fn retain_existing_selection(&mut self) {
@@ -221,6 +235,14 @@ impl State {
 }
 
 impl Browser {
+    pub(super) fn trash_selection_menu(
+        &self,
+        menu: gpui_kit::component::menu::PopupMenu,
+        cx: &Context<Self>,
+    ) -> gpui_kit::component::menu::PopupMenu {
+        view::entry_menu(self, menu, cx)
+    }
+
     pub(super) fn open_trash(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(slot) = self.active_mut() {
             slot.save_scroll();
@@ -353,7 +375,19 @@ impl Browser {
         if entries.is_empty() || self.trash.is_busy() {
             return;
         }
+        if matches!(action, Action::Restore)
+            && entries
+                .iter()
+                .any(|entry| !self.device_path_accepts_task(&entry.original_path, cx))
+        {
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            return;
+        }
         self.trash.set_busy(true);
+        self.trash.task_paths = entries
+            .iter()
+            .map(|entry| entry.original_path.clone())
+            .collect();
         let count = entries.len();
         notifications::Operation::start(i18n::count(action_labels(action).working, count, cx), cx);
         let work = cx
@@ -378,6 +412,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         self.trash.set_busy(false);
+        self.trash.task_paths.clear();
         if matches!(action, Action::Restore) {
             // A payload that already moved back belongs to its folder again
             // even when the trash record cleanup failed afterwards.

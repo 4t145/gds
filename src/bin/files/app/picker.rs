@@ -319,7 +319,15 @@ impl Browser {
     /// Apply one projection to every file slot, dropping a selection the new
     /// group no longer shows.
     fn reproject_picker(&mut self, projection: &Projection) {
-        for slot in std::iter::once(&mut self.home_tab).chain(self.tabs.iter_mut()) {
+        for slot in std::iter::once(&mut self.home_tab)
+            .chain(self.tabs.iter_mut())
+            .chain(
+                self.volume_pages
+                    .entries
+                    .iter_mut()
+                    .map(|page| &mut page.slot),
+            )
+        {
             slot.picker = Some(projection.clone());
             // A selection pending from a rename or a new folder is applied by
             // the refresh that follows it; consuming it now would drop it
@@ -355,6 +363,13 @@ impl Browser {
     /// the entry may have gone away or stopped being a regular file, and a
     /// stale projection must not let an out-of-group file through.
     fn complete_picker_selection(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if paths
+            .iter()
+            .any(|path| !self.device_path_available(path, cx))
+        {
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            return;
+        }
         let (read_only, filter_index, directory, multiple) = match self.picker.as_ref() {
             Some(picker) if !picker.completing => (
                 picker.read_only,

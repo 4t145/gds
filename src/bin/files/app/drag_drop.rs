@@ -336,6 +336,14 @@ impl Browser {
         if !self.can_accept_file_drop() {
             return;
         }
+        if !self.device_path_accepts_task(&destination, cx)
+            || sources
+                .iter()
+                .any(|path| !self.device_path_accepts_task(path, cx))
+        {
+            notifications::info(i18n::text("device-path-unavailable", cx), cx);
+            return;
+        }
         let paths = transferable_sources(&destination, sources);
         if paths.is_empty() {
             return;
@@ -358,6 +366,12 @@ impl Browser {
             }
         };
         self.file_operation_in_progress = true;
+        self.file_operation_paths = batch
+            .paths()
+            .iter()
+            .cloned()
+            .chain(std::iter::once(batch.destination().to_path_buf()))
+            .collect();
         notifications::Operation::start(i18n::count("transfer-working", count, cx), cx);
         let work = cx
             .background_executor()

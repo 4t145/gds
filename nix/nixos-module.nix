@@ -27,7 +27,10 @@ in {
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [
-    { environment.systemPackages = [ cfg.package ]; }
+    {
+      environment.systemPackages = [ cfg.package ];
+      services.udisks2.enable = lib.mkDefault true;
+    }
     (lib.mkIf cfg.defaultFileManager {
       xdg.mime.enable = true;
       xdg.mime.defaultApplications."inode/directory" = lib.mkDefault [ desktopFile ];

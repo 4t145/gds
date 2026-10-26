@@ -414,7 +414,12 @@ impl Browser {
         let Some(request) = self.rename.update(cx, |state, cx| state.take(cx)) else {
             return false;
         };
+        if !self.device_path_accepts_task(&request.source, cx) {
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            return true;
+        }
         self.file_operation_in_progress = true;
+        self.file_operation_paths = vec![request.source.clone()];
         notifications::Operation::start(i18n::text("rename-working", cx), cx);
         let source = request.source.clone();
         let origin_tab = self.active_id;

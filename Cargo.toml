@@ -49,6 +49,9 @@ tempfile = "3"
 url = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+async-io = "2"
+futures-lite = "2"
+zbus = "5.19"
 rustix = { version = "1.1", features = ["fs", "event"] }
 wl-clipboard-rs = "0.9.4"
 

@@ -70,7 +70,7 @@ impl DirectoryTarget {
             return None;
         }
         let slot = browser.active()?;
-        (slot.path() == path).then_some(Self {
+        (slot.files_available() && slot.path() == path).then_some(Self {
             tab_id: slot.id,
             path,
         })
@@ -79,9 +79,9 @@ impl DirectoryTarget {
     fn still_current(&self, browser: &Browser) -> bool {
         !browser.settings_open
             && browser.collection.is_none()
-            && browser
-                .active()
-                .is_some_and(|slot| slot.id == self.tab_id && slot.path() == self.path)
+            && browser.active().is_some_and(|slot| {
+                slot.files_available() && slot.id == self.tab_id && slot.path() == self.path
+            })
     }
 }
 
@@ -265,7 +265,7 @@ impl Browser {
         if self.settings_open || self.collection.is_some() {
             return Vec::new();
         }
-        let Some(slot) = self.active() else {
+        let Some(slot) = self.active().filter(|slot| slot.files_available()) else {
             return Vec::new();
         };
         let Some(tab) = slot.tab.as_ref() else {
@@ -300,6 +300,13 @@ impl Browser {
         let Some(selection) = Selection::capture(self) else {
             return;
         };
+        if selection
+            .paths
+            .iter()
+            .any(|path| !self.device_path_accepts_task(path, cx))
+        {
+            return;
+        }
         let batch = match operations::Batch::new(selection.paths) {
             Ok(batch) => batch,
             Err(error) => {
@@ -312,6 +319,7 @@ impl Browser {
             }
         };
         self.file_operation_in_progress = true;
+        self.file_operation_paths = batch.paths().to_vec();
         let request = Request {
             origin_tab: selection.tab_id,
             kind,
@@ -331,6 +339,17 @@ impl Browser {
     }
 
     fn start_file_operation(&mut self, request: Request, cx: &mut Context<Self>) {
+        if request
+            .batch
+            .paths()
+            .iter()
+            .any(|path| !self.device_path_available(path, cx))
+        {
+            self.file_operation_in_progress = false;
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            cx.notify();
+            return;
+        }
         let origin_tab = request.origin_tab;
         let kind = request.kind;
         let count = request.batch.paths().len();
@@ -393,7 +412,15 @@ impl Browser {
     pub(super) fn clear_completed_selection(&mut self, paths: &[PathBuf]) {
         let completed: HashSet<_> = paths.iter().collect();
         // Directory refresh is asynchronous; key repeat must not resubmit completed targets.
-        for slot in std::iter::once(&mut self.home_tab).chain(self.tabs.iter_mut()) {
+        for slot in std::iter::once(&mut self.home_tab)
+            .chain(self.tabs.iter_mut())
+            .chain(
+                self.volume_pages
+                    .entries
+                    .iter_mut()
+                    .map(|page| &mut page.slot),
+            )
+        {
             if let Some(tab) = &mut slot.tab {
                 tab.navigation
                     .view_mut()

@@ -11,9 +11,13 @@ use gpui_kit::{prelude::*, *};
 
 use crate::{actions::Command, theme, typography};
 
+pub mod capacity;
 pub mod dialog;
 pub mod keytips;
+pub mod list;
+pub mod split;
 pub use dialog::DialogActions;
+pub use list::ListSurface;
 
 pub const SIDEBAR_WIDTH: f32 = 222.0;
 pub const COLLAPSED_SIDEBAR_WIDTH: f32 = 58.0;
@@ -55,6 +59,7 @@ impl DataListStyle {
     pub const HEADER_SIZE: f32 = 11.0;
     pub const CELL_PADDING_X: f32 = 12.0;
     pub const CELL_PADDING_Y: f32 = 4.0;
+    pub const SCROLLBAR_LANE: f32 = 16.0;
 }
 
 /// An action together with the key context whose binding applies to it.
@@ -478,6 +483,10 @@ pub struct NavItem {
     command: Option<Command>,
     shortcut: Option<Shortcut>,
     disabled: bool,
+    tooltip_text: Option<SharedString>,
+    tooltip_enabled: bool,
+    details: Option<AnyElement>,
+    trailing: Vec<AnyElement>,
 }
 
 impl NavItem {
@@ -494,11 +503,34 @@ impl NavItem {
             command: None,
             shortcut: None,
             disabled: false,
+            tooltip_text: None,
+            tooltip_enabled: true,
+            details: None,
+            trailing: Vec::new(),
         }
     }
 
     pub fn compact(mut self, compact: bool) -> Self {
         self.compact = compact;
+        self
+    }
+    /// Keep the row compact while describing state and properties on hover.
+    pub fn tooltip_text(mut self, text: impl Into<SharedString>) -> Self {
+        self.tooltip_text = Some(text.into());
+        self
+    }
+    pub fn tooltip_enabled(mut self, enabled: bool) -> Self {
+        self.tooltip_enabled = enabled;
+        self
+    }
+    /// Secondary content shares the row's hover, selection and click target.
+    pub fn details(mut self, details: impl IntoElement) -> Self {
+        self.details = Some(details.into_any_element());
+        self
+    }
+    /// Standard icon-sized controls stay independent of the navigation button.
+    pub fn trailing(mut self, controls: Vec<AnyElement>) -> Self {
+        self.trailing = controls;
         self
     }
     pub fn selected(mut self, selected: bool) -> Self {
@@ -542,18 +574,36 @@ impl RenderOnce for NavItem {
             command,
             shortcut,
             disabled,
+            tooltip_text,
+            tooltip_enabled,
+            details,
+            trailing,
         } = self;
+        let trailing_width = trailing.len() as f32 * ICON_BUTTON_SIZE;
+        let header_right_padding = px(ITEM_GAP + trailing_width);
+        let trailing_top = px((SIDEBAR_ITEM_HEIGHT - ICON_BUTTON_SIZE) / 2.);
+        let trailing: Vec<_> = trailing.into_iter().map(|control| {
+            el! { .div { size: ICON_BUTTON_SIZE.px; flex; items_center; justify_center } [control] }
+        }).collect();
+        let has_details = details.is_some();
         let content = el! {
             .div {
-                flex; size_full; min_w_0; items_center; gap: ITEM_GAP.px;
-                @if (compact) justify_center; @end;
+                flex; flex_col; w_full; min_w_0;
             } [
-                icon.Icon::new { size: SIDEBAR_ICON_SIZE.px },
-                @if (!compact) .div { min_w_0; text_ellipsis } [~label], @end,
+                .div { flex; w_full; min_w_0; flex_shrink_0; items_center; gap: ITEM_GAP.px;
+                    h: SIDEBAR_ITEM_HEIGHT.px; px: ITEM_GAP.px;
+                    @if (compact) justify_center; @else pr: header_right_padding; @end;
+                } [
+                    icon.Icon::new { size: SIDEBAR_ICON_SIZE.px; flex_shrink_0 },
+                    @if (!compact) .div { min_w_0; text_ellipsis } [~label], @end,
+                ],
+                ..details,
             ]
         };
         let button = el! {
-            button { w_full; h: SIDEBAR_ITEM_HEIGHT.px; px: ITEM_GAP.px; py_0; rounded: ITEM_RADIUS.px } [content]
+            button { w_full; p_0; rounded: ITEM_RADIUS.px;
+                @if (has_details) h_auto; @else h: SIDEBAR_ITEM_HEIGHT.px; @end;
+            } [content]
         };
         let shortcut = shortcut.or_else(|| command.map(Shortcut::from));
         // A full-width row shows its key in its own trailing space, where it
@@ -567,17 +617,24 @@ impl RenderOnce for NavItem {
             }),
             _ => None,
         };
+        let tooltip_text = tooltip_text.unwrap_or_else(|| label.clone());
         let tooltip = match shortcut {
-            Some(shortcut) => Hint::shortcut(label.clone(), shortcut),
-            None => Hint::command(label.clone(), command),
+            Some(shortcut) => Hint::shortcut(tooltip_text, shortcut),
+            None => Hint::command(tooltip_text, command),
         }
         .builder();
         el! {
             .div {
-                # id; w_full; h: SIDEBAR_ITEM_HEIGHT.px; flex_shrink_0;
-                tooltip_show_delay: TOOLTIP_DELAY; tooltip: tooltip;
+                # id; relative; w_full; flex_shrink_0;
+                @if (!has_details) h: SIDEBAR_ITEM_HEIGHT.px; @end;
+                @if (tooltip_enabled) tooltip_show_delay: TOOLTIP_DELAY; tooltip: tooltip; @end;
             } [
                 button,
+                @if (!trailing.is_empty())
+                    .div { absolute; right_0; top: trailing_top; flex } [
+                        ..trailing,
+                    ],
+                @end,
                 @if (let Some(hint) = hint) $(hint), @end,
             ]
         }

@@ -20,7 +20,11 @@ const TRASH_COMMANDS: [Command; 3] = [
     Command::EmptyTrash,
 ];
 /// Actions that belong to one location page rather than the file workspace.
-const PAGE_COMMANDS: [Command; 1] = [Command::ClearRecent];
+const PAGE_COMMANDS: [Command; 3] = [
+    Command::ClearRecent,
+    Command::MountVolume,
+    Command::UnmountVolume,
+];
 
 impl View {
     pub(super) fn render_keybindings(&self, cx: &App) -> Div {

@@ -5,6 +5,7 @@ pub mod desktop;
 pub mod i18n;
 pub mod notifications;
 pub mod settings;
+pub mod storage;
 pub mod theme;
 pub mod time;
 pub mod typography;

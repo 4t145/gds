@@ -3,6 +3,24 @@ use gpui_kit::base::actions::{SelectDown, SelectFirst, SelectLast, SelectUp};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 impl Browser {
+    pub(super) fn on_deselect_all(
+        &mut self,
+        _: &DeselectAll,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dispatch(Command::DeselectAll, window, cx);
+    }
+
+    pub(super) fn on_selection_menu(
+        &mut self,
+        _: &SelectionMenu,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.dispatch(Command::ContextMenu, window, cx);
+    }
+
     pub(super) fn on_application_menu(
         &mut self,
         _: &ApplicationMenu,
@@ -259,6 +277,7 @@ impl Browser {
             return;
         }
         let moved = match self.collection {
+            Some(Collection::Volumes) => self.move_volume_cursor(motion, cx),
             Some(Collection::Trash) => self.move_trash_cursor(motion, false, cx),
             Some(collection @ (Collection::Recent | Collection::Favorites)) => {
                 self.move_place_cursor(collection, motion, cx)
@@ -350,29 +369,6 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         self.dispatch(Command::OpenInNewTab, window, cx);
-    }
-
-    pub(super) fn on_directory_background_press(
-        &mut self,
-        event: &MouseDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.settings_open
-            || self.collection.is_some()
-            || !matches!(event.button, MouseButton::Left | MouseButton::Right)
-        {
-            return;
-        }
-        if let Some(slot) = self.active_mut() {
-            if let Some(tab) = &mut slot.tab {
-                tab.navigation.view_mut().selected.clear();
-            }
-            slot.cursor = None;
-            slot.anchor = None;
-        }
-        self.focus.focus(window, cx);
-        cx.notify();
     }
 
     pub(super) fn directory_menu_builder(

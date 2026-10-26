@@ -23,7 +23,6 @@ const TAB_HEIGHT: f32 = 44.;
 const ITEM_RADIUS: f32 = 6.;
 const CAPTION_PADDING: f32 = 6.;
 const FILTER_WIDTH: f32 = 200.;
-const TAB_LIST_FRACTION: f32 = 0.75;
 /// A collapsed tab row puts its close control in its own corner: a small X
 /// must not widen the icon-only row.
 const TAB_CORNER_CLOSE_SIZE: f32 = 16.;
@@ -35,7 +34,7 @@ const TAB_CLOSE_RESERVE: f32 = ITEM_GAP * 2. + ui::ICON_BUTTON_SIZE;
 const TERMINAL_HEIGHT: f32 = 120.;
 const PANEL_PADDING: f32 = 16.;
 /// Height reserved by Kit's overlay scrollbar at the table's bottom edge.
-pub(super) const SCROLLBAR_LANE: f32 = 16.;
+pub(super) const SCROLLBAR_LANE: f32 = DataListStyle::SCROLLBAR_LANE;
 const PREVIEW_WIDTH: f32 = 280.;
 const PANEL_HEADER_HEIGHT: f32 = 44.;
 /// Whether the footer's left slot renders the current location scope label.
@@ -47,9 +46,11 @@ impl Render for Browser {
         // happened while a dialog held focus never reaches this view's listener,
         // and must still hide the close controls.
         self.held_modifier = Self::current_held_modifier(window);
+        self.drain_device_removals(cx);
         if self.settings_open
             || self.collection.is_some()
             || self.menu_open
+            || self.keyboard_menu.is_some()
             || self.picker.is_some()
             || window.has_active_dialog(cx)
         {
@@ -93,6 +94,12 @@ impl Render for Browser {
         if self.tab_prefix.is_some() {
             context.add(TAB_PREFIX_CONTEXT);
         }
+        if !self.settings_open
+            && (self.collection == Some(Collection::Volumes)
+                || self.collection.is_none() && self.volume_pages.active(self.active_id).is_some())
+        {
+            context.add(VOLUME_CONTEXT);
+        }
         // The picker decisions exist only on the picker page itself. Settings
         // replaces the workspace context, and a dialog owns its own context, so
         // neither can pick up `Alt+A` / `Alt+C` from here.
@@ -100,6 +107,7 @@ impl Render for Browser {
             context.add(picker::PICKER_CONTEXT);
         }
         let notification_overlay = notifications::overlay(cx);
+        let selection_menu = self.render_selection_menu(window);
         el! {
             .div {
                 # "gds-files"; key_context: $context; track_focus: $&self.focus;
@@ -127,6 +135,8 @@ impl Render for Browser {
                 on_action: (cx, Self::on_paste_files).Context::listener;
                 on_action: (cx, Self::on_copy_paths).Context::listener;
                 on_action: (cx, Self::on_select_all).Context::listener;
+                on_action: (cx, Self::on_deselect_all).Context::listener;
+                on_action: (cx, Self::on_selection_menu).Context::listener;
                 on_action: (cx, Self::on_rename).Context::listener;
                 on_action: (cx, Self::on_details).Context::listener;
                 on_action: (cx, Self::on_configure_columns).Context::listener;
@@ -137,6 +147,8 @@ impl Render for Browser {
                 on_action: (cx, Self::on_purge_selection).Context::listener;
                 on_action: (cx, Self::on_empty_trash).Context::listener;
                 on_action: (cx, Self::on_clear_recent_action).Context::listener;
+                on_action: (cx, Self::on_mount_volume).Context::listener;
+                on_action: (cx, Self::on_unmount_volume).Context::listener;
                 on_action: (cx, Self::on_picker_confirm).Context::listener;
                 on_action: (cx, Self::on_picker_confirm_with_control).Context::listener;
                 on_action: (cx, Self::on_picker_read_only).Context::listener;
@@ -159,6 +171,7 @@ impl Render for Browser {
                 capture_key_down: (cx, Self::on_file_key_down).Context::listener;
                 capture_key_down: (cx, Self::on_trash_key_down).Context::listener;
                 capture_key_down: (cx, Self::on_place_key_down).Context::listener;
+                capture_key_down: (cx, Self::on_volume_key_down).Context::listener;
                 on_action: (cx, Self::on_select_up).Context::listener;
                 on_action: (cx, Self::on_select_down).Context::listener;
                 on_action: (cx, Self::on_select_first).Context::listener;
@@ -169,6 +182,7 @@ impl Render for Browser {
                 capture_key_up: (cx, Self::on_tab_key_up).Context::listener;
                 on_modifiers_changed: (cx, Self::on_modifiers_changed).Context::listener;
             } [toolbar, body, ..panel, footer,
+                ..selection_menu,
                 @if (let Some(overlay) = notification_overlay)
                     $(overlay),
                 @end,
@@ -225,6 +239,7 @@ impl Browser {
     fn render_navigation(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let navigation = self
             .active()
+            .filter(|_| self.volume_pages.active(self.active_id).is_none())
             .and_then(|slot| slot.tab.as_ref())
             .map(|tab| &tab.navigation);
         let can_back = navigation.is_some_and(|nav| nav.can_go_back());
@@ -279,7 +294,7 @@ impl Browser {
         }.into_any_element()
     }
 
-    fn render_tab(
+    pub(super) fn render_tab(
         &self,
         slot: &OpenTab,
         position: usize,
@@ -506,7 +521,7 @@ impl Browser {
         }
     }
 
-    fn render_location(
+    pub(super) fn render_location(
         &self,
         target: LocationTarget,
         window: &mut Window,
@@ -532,39 +547,6 @@ impl Browser {
             tabs::location_shortcut(target),
         );
         el! { .div { relative; w_full } [nav, hint] }.into_any_element()
-    }
-
-    fn render_sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let compact = self.sidebar_collapsed;
-        let cycle_targets = self.tab_cycle_targets();
-        let tabs: Vec<_> = self
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(position, slot)| self.render_tab(slot, position, cycle_targets, window, cx))
-            .collect();
-        let locations: Vec<_> = LocationTarget::ALL
-            .into_iter()
-            .map(|target| self.render_location(target, window, cx))
-            .collect();
-        let on_new_tab = cx.listener(Self::click_command(Command::NewTab));
-        el! {
-            .div {
-                # "file-sidebar-content"; flex; flex_col; size_full; min_h_0; overflow_y_scroll;
-                p: ui::SIDEBAR_PADDING.px; gap: ITEM_GAP.px;
-            } [
-                @if (!compact)
-                    .div { px: CAPTION_PADDING.px; py: SMALL_GAP.px; text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("tabs", cx)],
-                @end,
-                .div { # "vertical-tabs"; flex; flex_col; gap: SMALL_GAP.px; min_h_0; max_h: TAB_LIST_FRACTION.relative; overflow_y_scroll } [..tabs],
-                ("new-tab", IconName::Plus, $i18n::text("new-tab", cx)).NavItem::new { compact: compact; command: Command::NewTab; on_click: on_new_tab },
-                .div { flex_1 },
-                @if (!compact)
-                    .div { px: CAPTION_PADDING.px; text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("locations", cx)],
-                @end,
-                .div { flex; flex_col; w_full; flex_shrink_0; gap: SMALL_GAP.px } [..locations],
-            ]
-        }.into_any_element()
     }
 
     /// The footer's far-left slot reports the current location scope.
@@ -641,6 +623,9 @@ impl Browser {
         if let Some(collection) = self.collection {
             return self.render_collection(collection, window, cx);
         }
+        if self.active().is_some_and(|slot| !slot.files_available()) {
+            return self.render_device_unavailable(cx);
+        }
         self.sync_preview(cx);
         let header = self.render_content_header(window, cx);
         let list = self.render_file_table(window, cx);
@@ -649,6 +634,21 @@ impl Browser {
             .div { # "file-list-area"; flex_1; min_h_0; overflow_hidden; px: TABLE_INSET.px } [list]
             { context_menu: menu; into_any_element }
         };
+        let rows = self.active().map_or(0, |slot| slot.table_rows.len());
+        let scroll = self
+            .active()
+            .map(|slot| slot.scroll.0.borrow().base_handle.clone())
+            .unwrap_or_default();
+        let list_area =
+            ui::ListSurface::new("directory-selection-surface", list_area, rows, scroll)
+                .inset_x(px(TABLE_INSET))
+                .header_height(px(if rows == 0 {
+                    0.
+                } else {
+                    DataListStyle::HEADER_HEIGHT
+                }))
+                .on_blank_press(cx.listener(Self::on_list_background_press))
+                .into_any_element();
         // A picker holds one path at a time, so its list has no rubber-band
         // surface: a batch selection could neither be reported nor kept.
         let list_area = if self.picker.is_some() {
@@ -737,7 +737,6 @@ impl Browser {
         table::FileTable::sync_state(&self.file_table, data, cx);
         let height =
             DataListStyle::HEADER_HEIGHT + DataListStyle::ROW_HEIGHT * slot.visible.len() as f32;
-        let on_background = cx.listener(Self::on_directory_background_press);
         let table = el! {
             ($&self.file_table).DataTable::new {
                 bordered: false;
@@ -750,7 +749,6 @@ impl Browser {
             .div {
                 # "directory-empty-space"; absolute; left_0; right_0;
                 top: height.px; bottom: SCROLLBAR_LANE.px;
-                on_any_mouse_down: on_background;
             }
         };
         let empty_menu = Self::directory_menu_builder(cx.entity().downgrade(), self.current_path());
@@ -771,10 +769,8 @@ impl Browser {
     }
 
     fn empty_file_list(&self, message: SharedString, cx: &mut Context<Self>) -> Stateful<Div> {
-        let on_background = cx.listener(Self::on_directory_background_press);
         let empty = el! {
             .div { # "empty-file-list"; size_full; flex; items_center; justify_center;
-                on_any_mouse_down: on_background;
             } [message]
         };
         drag_drop::drop_target(empty, self.current_path(), cx.entity().downgrade())
@@ -793,6 +789,7 @@ impl Browser {
         // Trash and Network are virtual locations; they never borrow a
         // filesystem path from the active tab.
         match collection {
+            Collection::Volumes => return self.render_devices_page(window, cx),
             Collection::Trash => return self.render_trash(window, cx),
             Collection::Network => return self.render_network(cx),
             Collection::Recent | Collection::Favorites => {}
@@ -814,13 +811,17 @@ impl Browser {
             .map(|(index, entry)| {
                 let path = PathBuf::from(entry);
                 let label = path.display().to_string();
+                let menu = Self::place_menu(cx.entity().downgrade(), collection, path.clone());
                 let on_click = cx.listener(Self::click_place(path));
-                el! {
+                let row = el! {
                     ($("place", index), icon, label).NavItem::new {
                         selected: $(selected == Some(index));
                         on_click: on_click;
                     }
-                }
+                };
+                el! { .div { # $("place-context", index); w_full; flex_shrink_0 } [row] }
+                    .context_menu(menu)
+                    .into_any_element()
             })
             .collect();
         let title: SharedString = i18n::text(collection.label_id(), cx);
@@ -852,6 +853,24 @@ impl Browser {
             }
             .into_any_element()
         };
+        let body = el! {
+            .div {
+                # "places-body"; flex_1; min_h_0; flex; flex_col;
+                px: CONTENT_PADDING.px; pb: CONTENT_PADDING.px;
+            } [list]
+        }
+        .into_any_element();
+        let body = ui::ListSurface::new(
+            "places-selection-surface",
+            body,
+            paths.len(),
+            cursor.scroll.clone(),
+        )
+        .row_height(px(ui::SIDEBAR_ITEM_HEIGHT))
+        .header_height(px(0.))
+        .inset_x(px(CONTENT_PADDING))
+        .bottom_inset(px(0.))
+        .on_blank_press(cx.listener(Self::on_list_background_press));
         el! {
             .div { # "places-content"; flex; flex_col; size_full; min_h_0 } [
                 .div {
@@ -864,10 +883,7 @@ impl Browser {
                     } [title],
                     ..actions,
                 ],
-                .div {
-                    # "places-body"; flex_1; min_h_0; flex; flex_col;
-                    px: CONTENT_PADDING.px; pb: CONTENT_PADDING.px;
-                } [list],
+                body,
             ]
         }
         .into_any_element()
@@ -932,6 +948,16 @@ impl Browser {
         let mut labels = Vec::new();
         if self.settings_open {
             labels.push(i18n::text("settings-auto-apply", cx));
+        } else if self.collection == Some(Collection::Volumes) {
+            let count = self
+                .storage
+                .read(cx)
+                .snapshot
+                .volumes
+                .iter()
+                .filter(|volume| volume.visible)
+                .count();
+            labels.push(i18n::count("volume-count", count, cx));
         } else if self.collection == Some(Collection::Trash) {
             if self.trash.is_loading() {
                 labels.push(i18n::text("recycle-loading", cx));
@@ -941,7 +967,7 @@ impl Browser {
             if selected > 0 {
                 labels.push(i18n::count("selection-count", selected, cx));
             }
-        } else if let Some(slot) = self.active()
+        } else if let Some(slot) = self.active().filter(|slot| slot.files_available())
             && let Some(tab) = &slot.tab
         {
             let directory = tab.navigation.directory();
@@ -981,7 +1007,7 @@ impl Browser {
 }
 
 impl LocationTarget {
-    const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 5] = [
         Self::Home,
         Self::Recent,
         Self::Favorites,
@@ -1011,6 +1037,7 @@ impl LocationTarget {
 impl Collection {
     fn label_id(self) -> &'static str {
         match self {
+            Self::Volumes => "volumes",
             Self::Recent => "recent",
             Self::Favorites => "favorites",
             Self::Network => "network",
@@ -1019,6 +1046,7 @@ impl Collection {
     }
     fn icon(self) -> IconName {
         match self {
+            Self::Volumes => IconName::HardDrive,
             Self::Recent => IconName::Clock,
             Self::Favorites => IconName::Star,
             Self::Network => IconName::Network,
@@ -1031,7 +1059,7 @@ impl Collection {
         match self {
             Self::Recent => Some(&places.recent),
             Self::Favorites => Some(&places.favorites),
-            Self::Network | Self::Trash => None,
+            Self::Network | Self::Trash | Self::Volumes => None,
         }
     }
 }

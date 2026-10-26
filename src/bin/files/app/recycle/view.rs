@@ -201,13 +201,31 @@ fn render_table(browser: &Browser, window: &mut Window, cx: &mut Context<Browser
         cx.entity().downgrade(),
         !browser.trash.is_busy() && !browser.trash.rows().is_empty(),
     );
-    el! {
+    let area = el! {
         .div {
             # "trash-table-area"; flex_1; min_h_0; min_w_0; overflow_hidden;
             px: TABLE_INSET.px;
         } [table]
         { context_menu: menu; into_any_element }
-    }
+    };
+    let scroll = browser
+        .trash
+        .table
+        .read(cx)
+        .vertical_scroll_handle
+        .0
+        .borrow()
+        .base_handle
+        .clone();
+    gds::ui::ListSurface::new(
+        "trash-selection-surface",
+        area,
+        browser.trash.rows().len(),
+        scroll,
+    )
+    .inset_x(px(TABLE_INSET))
+    .on_blank_press(cx.listener(Browser::on_list_background_press))
+    .into_any_element()
 }
 
 fn menu_row(

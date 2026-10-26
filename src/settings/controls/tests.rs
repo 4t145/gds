@@ -25,6 +25,8 @@ fn modified_preferences() -> Preferences {
             size: 18.0,
         },
         files: FilesPreferences {
+            sidebar: Default::default(),
+            volume_mount_points: Default::default(),
             show_hidden: true,
             columns: Layout::new([
                 Column::Name,

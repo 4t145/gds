@@ -1,5 +1,7 @@
 mod breadcrumb;
 mod columns;
+mod context_menu;
+mod devices;
 mod drag_drop;
 mod file_actions;
 mod file_icon;
@@ -13,6 +15,7 @@ mod preview;
 mod recycle;
 mod rename;
 mod selection;
+mod sidebar;
 mod table;
 mod tabs;
 mod transfers;
@@ -23,7 +26,7 @@ use std::{
     sync::Arc,
 };
 
-use gds::{actions::*, desktop, i18n, notifications, settings, ui};
+use gds::{actions::*, desktop, i18n, notifications, settings, storage, ui};
 use gpui_kit::component::WindowExt;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -42,6 +45,7 @@ enum Collection {
     Favorites,
     Network,
     Trash,
+    Volumes,
 }
 
 /// Id of the fixed Home page's own directory state.
@@ -109,6 +113,7 @@ struct OpenTab {
     cursor: Option<PathBuf>,
     sort: sorting::Sort,
     pinned: bool,
+    device: Option<devices::DeviceLocation>,
     /// The picker's type-filter projection for this tab, if this window is a
     /// picker. It is applied together with the name filter so a directory read
     /// never replaces the narrowed list with the unfiltered one.
@@ -133,6 +138,7 @@ impl OpenTab {
             cursor: None,
             sort: sorting::Sort::default(),
             pinned,
+            device: None,
             picker: None,
         }
     }
@@ -159,6 +165,11 @@ impl OpenTab {
     }
 
     fn refresh_visible(&mut self) {
+        if !self.files_available() {
+            self.visible = Arc::from([]);
+            self.table_rows = Arc::from([]);
+            return;
+        }
         let pending = self.pending_selection.take();
         let filter = self.filter.to_lowercase();
         let picker = self.picker.clone();
@@ -249,10 +260,17 @@ pub struct Browser {
     preferences: settings::Preferences,
     places: Places,
     places_load_error: Option<String>,
+    storage: Entity<storage::Service>,
+    sidebar_split: Entity<ui::split::State>,
+    pending_removals: Vec<storage::DeviceAction>,
     home: PathBuf,
     tabs: Vec<OpenTab>,
     /// The fixed Home page's own directory state; it never joins `tabs`.
     home_tab: OpenTab,
+    volume_pages: devices::pages::Pages,
+    volume_table: Entity<gpui_kit::component::table::TableState<devices::table::VolumeTable>>,
+    volume_defaults: std::collections::HashMap<storage::VolumeId, PathBuf>,
+    selected_volume: Option<storage::VolumeId>,
     active_id: u64,
     next_id: u64,
     /// The tab row the pointer is over, so its close control follows hover as
@@ -268,11 +286,14 @@ pub struct Browser {
     /// Whether the application menu is showing. The toolbar button and
     /// `Alt+M` / `F10` both drive this one flag.
     menu_open: bool,
+    keyboard_menu: Option<context_menu::OpenMenu>,
+    volume_menu_focus: Option<FocusHandle>,
     settings_open: bool,
     terminal_visible: bool,
     path_editing: bool,
     preview_visible: bool,
     file_operation_in_progress: bool,
+    file_operation_paths: Vec<PathBuf>,
     collection: Option<Collection>,
     /// The picker session, when this window is a file picker.
     picker: Option<picker::State>,
@@ -313,14 +334,28 @@ impl Browser {
         let theme_reload =
             cx.new(|cx| gds::theme::HotReload::new(preferences.appearance.clone(), window, cx));
         let file_table = table::FileTable::make_state(cx.entity().downgrade(), window, cx);
+        let volume_table =
+            devices::table::VolumeTable::make_state(cx.entity().downgrade(), window, cx);
         let trash = recycle::State::new(cx.entity().downgrade(), window, cx);
         let column_editor = cx.new(|_| columns::Editor::new());
         let preview = cx.new(|_| preview::View::new());
         let rename = cx.new(|cx| rename::State::new(window, cx));
+        let storage = storage::Service::shared(cx);
+        let sidebar_split = cx.new(|cx| {
+            ui::split::State::new(
+                preferences.files.sidebar.tabs_height,
+                sidebar::MIN_TABS_HEIGHT,
+                sidebar::MIN_DEVICES_HEIGHT,
+                cx,
+            )
+        });
         let subscriptions = vec![
             cx.subscribe_in(&path_input, window, Self::on_path_input),
             cx.subscribe_in(&filter_input, window, Self::on_filter_input),
             cx.subscribe_in(&settings_view, window, Self::on_settings_event),
+            cx.observe(&storage, Self::on_storage_changed),
+            cx.observe(&sidebar_split, |_, _, cx| cx.notify()),
+            cx.subscribe(&sidebar_split, Self::on_sidebar_split),
             // Another application may replace a cut after this window lost
             // focus, so revalidate the cached cut markers on activation. The
             // check is a no-op unless a cut is cached.
@@ -364,9 +399,16 @@ impl Browser {
             preferences,
             places,
             places_load_error: state_error.clone(),
+            storage,
+            sidebar_split,
+            pending_removals: Vec::new(),
             home,
             tabs: Vec::new(),
             home_tab,
+            volume_pages: devices::pages::Pages::default(),
+            volume_table,
+            selected_volume: None,
+            volume_defaults: std::collections::HashMap::new(),
             active_id: HOME_TAB_ID,
             next_id: 1,
             hovered_tab: None,
@@ -374,11 +416,14 @@ impl Browser {
             sidebar_collapsed: false,
             held_modifier: None,
             menu_open: false,
+            keyboard_menu: None,
+            volume_menu_focus: None,
             settings_open: false,
             terminal_visible: false,
             path_editing: false,
             preview_visible: false,
             file_operation_in_progress: false,
+            file_operation_paths: Vec::new(),
             collection: None,
             picker: picker.map(picker::State::new),
             recent_cursor: PlaceCursor::default(),
@@ -425,12 +470,15 @@ impl Browser {
         self.tab_slot_mut(self.active_id)
     }
 
-    /// One tab slot by id, including the fixed Home slot.
+    /// One directory slot by id, including fixed Home and volume pages.
     fn tab_slot(&self, id: u64) -> Option<&OpenTab> {
         if id == HOME_TAB_ID {
             Some(&self.home_tab)
         } else {
-            self.tabs.iter().find(|slot| slot.id == id)
+            self.tabs
+                .iter()
+                .chain(self.volume_pages.entries.iter().map(|page| &page.slot))
+                .find(|slot| slot.id == id)
         }
     }
 
@@ -439,7 +487,15 @@ impl Browser {
         if id == HOME_TAB_ID {
             Some(&mut self.home_tab)
         } else {
-            self.tabs.iter_mut().find(|slot| slot.id == id)
+            self.tabs
+                .iter_mut()
+                .chain(
+                    self.volume_pages
+                        .entries
+                        .iter_mut()
+                        .map(|page| &mut page.slot),
+                )
+                .find(|slot| slot.id == id)
         }
     }
 
@@ -453,7 +509,7 @@ impl Browser {
         match collection {
             Collection::Recent => Some(&self.recent_cursor),
             Collection::Favorites => Some(&self.favorites_cursor),
-            Collection::Network | Collection::Trash => None,
+            Collection::Network | Collection::Trash | Collection::Volumes => None,
         }
     }
 
@@ -462,7 +518,7 @@ impl Browser {
         match collection {
             Collection::Recent => Some(&mut self.recent_cursor),
             Collection::Favorites => Some(&mut self.favorites_cursor),
-            Collection::Network | Collection::Trash => None,
+            Collection::Network | Collection::Trash | Collection::Volumes => None,
         }
     }
 
@@ -526,26 +582,55 @@ impl Browser {
         let options = ReadOptions {
             show_hidden: self.preferences.files.show_hidden,
         };
-        let Some(slot) = slot_mut(id, &mut self.home_tab, &mut self.tabs) else {
+        let Some(slot) = slot_mut(
+            id,
+            &mut self.home_tab,
+            &mut self.tabs,
+            &mut self.volume_pages,
+        ) else {
             return;
         };
         slot.initial_loading = true;
         slot.initial_generation += 1;
         let generation = slot.initial_generation;
         let path = slot.initial_path.clone();
+        let expected_device =
+            devices::DeviceLocation::capture(&self.storage.read(cx).snapshot, &path);
         let work = cx
             .background_executor()
             .spawn(async move { directory::read_directory(&path, options) });
         cx.spawn(async move |this, cx| {
             let result = work.await;
             if let Err(error) = this.update(cx, |this, cx| {
-                let Some(slot) = slot_mut(id, &mut this.home_tab, &mut this.tabs) else {
+                let storage_snapshot = &this.storage.read(cx).snapshot;
+                let device_valid = expected_device
+                    .as_ref()
+                    .is_none_or(|device| device.is_current(storage_snapshot));
+                let current_device = result.as_ref().ok().and_then(|snapshot| {
+                    devices::DeviceLocation::capture(storage_snapshot, &snapshot.path)
+                });
+                let Some(slot) = slot_mut(
+                    id,
+                    &mut this.home_tab,
+                    &mut this.tabs,
+                    &mut this.volume_pages,
+                ) else {
                     return;
                 };
                 if slot.initial_generation != generation {
                     return;
                 }
                 slot.initial_loading = false;
+                if !device_valid {
+                    slot.device = expected_device;
+                    if let Some(device) = &mut slot.device {
+                        device.update(storage_snapshot);
+                    }
+                    slot.refresh_visible();
+                    notifications::error(i18n::text("device-path-unavailable", cx), cx);
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(snapshot) => {
                         report_directory_warnings(&snapshot, cx);
@@ -559,6 +644,7 @@ impl Browser {
                             &this.places,
                             &this.preferences.files.columns,
                         );
+                        slot.device = current_device;
                         slot.refresh_visible();
                         this.places.record(&path);
                         this.save_places(cx);
@@ -578,6 +664,16 @@ impl Browser {
     }
 
     fn start_request(&mut self, id: u64, request: LoadRequest, cx: &mut Context<Self>) {
+        let expected_device =
+            devices::DeviceLocation::capture(&self.storage.read(cx).snapshot, request.path());
+        if expected_device.is_none() && !self.device_path_available(request.path(), cx) {
+            if let Some(tab) = self.tab_slot_mut(id).and_then(|slot| slot.tab.as_mut()) {
+                tab.navigation.cancel_request(&request);
+            }
+            notifications::error(i18n::text("device-path-unavailable", cx), cx);
+            cx.notify();
+            return;
+        }
         let worker_request = request.clone();
         let work = cx
             .background_executor()
@@ -585,12 +681,31 @@ impl Browser {
         cx.spawn(async move |this, cx| {
             let result = work.await;
             if let Err(error) = this.update(cx, |this, cx| {
-                let Some(slot) = slot_mut(id, &mut this.home_tab, &mut this.tabs) else {
+                let storage_snapshot = &this.storage.read(cx).snapshot;
+                let device_valid = expected_device
+                    .as_ref()
+                    .is_none_or(|device| device.is_current(storage_snapshot));
+                let current_device = result.as_ref().ok().and_then(|snapshot| {
+                    devices::DeviceLocation::capture(storage_snapshot, &snapshot.path)
+                });
+                let Some(slot) = slot_mut(
+                    id,
+                    &mut this.home_tab,
+                    &mut this.tabs,
+                    &mut this.volume_pages,
+                ) else {
                     return;
                 };
                 let Some(tab) = &mut slot.tab else {
                     return;
                 };
+                if !device_valid {
+                    if tab.navigation.cancel_request(&request) {
+                        notifications::error(i18n::text("device-path-unavailable", cx), cx);
+                        cx.notify();
+                    }
+                    return;
+                }
                 match tab.navigation.finish_load(&request, result) {
                     Ok(LoadOutcome::Stale) => return,
                     Ok(LoadOutcome::Applied) => {
@@ -603,6 +718,9 @@ impl Browser {
                             &this.places,
                             &this.preferences.files.columns,
                         );
+                        // Reconnecting only releases the unavailable screen
+                        // after the requested relative directory was read.
+                        slot.device = current_device;
                         slot.refresh_visible();
                         slot.restore_scroll();
                         this.places.record(&path);
@@ -627,6 +745,20 @@ impl Browser {
     }
 
     fn navigate_tab(&mut self, id: u64, path: PathBuf, cx: &mut Context<Self>) {
+        self.navigate_tab_inner(id, path, false, cx);
+    }
+
+    fn navigate_tab_inner(
+        &mut self,
+        id: u64,
+        path: PathBuf,
+        explicit_device: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !explicit_device && !self.device_path_available(&path, cx) {
+            notifications::info(i18n::text("device-path-unavailable", cx), cx);
+            return;
+        }
         // The Home page is fixed: opening another folder from it starts an
         // ordinary tab instead of moving Home away from the home directory,
         // and asking for the home folder again stays on Home.
@@ -636,11 +768,37 @@ impl Browser {
             }
             return;
         }
+        if !explicit_device && let Some(page) = self.volume_pages.active(id) {
+            let activate = self.active_id == id && self.collection.is_none() && !self.settings_open;
+            if page.slot.path() != path {
+                let previous = (
+                    self.active_id,
+                    self.collection,
+                    self.settings_open,
+                    self.path_editing,
+                );
+                self.open_tab_inner(path, false, None, cx);
+                // A delayed directory activation must not steal the page the
+                // user switched to while its metadata was being read.
+                if !activate {
+                    (
+                        self.active_id,
+                        self.collection,
+                        self.settings_open,
+                        self.path_editing,
+                    ) = previous;
+                }
+            } else if activate {
+                self.path_editing = false;
+                cx.notify();
+            }
+            return;
+        }
         if self.active_id == id {
             self.collection = None;
             self.path_editing = false;
         }
-        let Some(slot) = self.tabs.iter_mut().find(|tab| tab.id == id) else {
+        let Some(slot) = self.tab_slot_mut(id) else {
             return;
         };
         slot.save_scroll();
@@ -899,6 +1057,9 @@ impl Browser {
     }
 
     fn activate_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.device_path_available(&path, cx) {
+            return;
+        }
         // A picker never hands a path to another program: folders navigate and
         // one regular file is what the window reports.
         if self.picker.is_some() {
@@ -945,6 +1106,9 @@ impl Browser {
     }
 
     fn open_external_terminal(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.device_path_available(&path, cx) {
+            return;
+        }
         let work = cx
             .background_executor()
             .spawn(async move { desktop::open_terminal(&path) });
@@ -1026,10 +1190,21 @@ impl Browser {
     }
 
     fn refresh_tab(&mut self, id: u64, cx: &mut Context<Self>) {
+        if self
+            .tab_slot(id)
+            .is_some_and(|slot| !slot.files_available())
+        {
+            return;
+        }
         let options = ReadOptions {
             show_hidden: self.preferences.files.show_hidden,
         };
-        let Some(slot) = slot_mut(id, &mut self.home_tab, &mut self.tabs) else {
+        let Some(slot) = slot_mut(
+            id,
+            &mut self.home_tab,
+            &mut self.tabs,
+            &mut self.volume_pages,
+        ) else {
             return;
         };
         slot.save_scroll();
@@ -1042,18 +1217,33 @@ impl Browser {
     }
 
     fn finish_pending_refresh(&mut self, id: u64, cx: &mut Context<Self>) {
-        let refresh = slot_mut(id, &mut self.home_tab, &mut self.tabs)
-            .is_some_and(|slot| std::mem::take(&mut slot.needs_refresh));
+        let refresh = slot_mut(
+            id,
+            &mut self.home_tab,
+            &mut self.tabs,
+            &mut self.volume_pages,
+        )
+        .is_some_and(|slot| std::mem::take(&mut slot.needs_refresh));
         if refresh {
             self.refresh_tab(id, cx);
         }
     }
 
     fn refresh_after_file_operation(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        self.storage
+            .update(cx, |service, cx| service.refresh_capacity(cx));
         let parents: std::collections::HashSet<_> =
             paths.iter().filter_map(|path| path.parent()).collect();
         let mut ready = Vec::new();
-        for slot in std::iter::once(&mut self.home_tab).chain(self.tabs.iter_mut()) {
+        for slot in std::iter::once(&mut self.home_tab)
+            .chain(self.tabs.iter_mut())
+            .chain(
+                self.volume_pages
+                    .entries
+                    .iter_mut()
+                    .map(|page| &mut page.slot),
+            )
+        {
             let affected = parents.contains(slot.path())
                 || paths.iter().any(|path| slot.path().starts_with(path));
             if !affected {
@@ -1086,6 +1276,10 @@ impl Browser {
                 cx.notify();
                 return;
             }
+        }
+        if self.keyboard_menu.is_some() && command != Command::ContextMenu {
+            self.keyboard_menu = None;
+            self.focus.focus(window, cx);
         }
         match command {
             Command::Menu => {
@@ -1121,7 +1315,8 @@ impl Browser {
             Command::NewTab => self.open_tab(self.home.clone(), false, window, cx),
             Command::CloseTab => {
                 // Only an ordinary visible tab can claim Ctrl+W.
-                if self.collection.is_none() && self.active_id != HOME_TAB_ID {
+                if self.collection.is_none() && self.tabs.iter().any(|tab| tab.id == self.active_id)
+                {
                     self.close_tab(self.active_id, window, cx);
                 }
             }
@@ -1178,6 +1373,14 @@ impl Browser {
                     }
                     return;
                 }
+                if self.volume_pages.active(self.active_id).is_some() {
+                    if matches!(command, Command::Parent)
+                        && let Some(parent) = self.current_path().parent().map(Path::to_path_buf)
+                    {
+                        self.navigate(parent, cx);
+                    }
+                    return;
+                }
                 if let Some(slot) = self.active_mut() {
                     slot.save_scroll();
                     let id = slot.id;
@@ -1192,6 +1395,8 @@ impl Browser {
                 }
             }
             Command::Refresh => {
+                self.storage
+                    .update(cx, |service, cx| service.refresh_capacity(cx));
                 if self.collection == Some(Collection::Trash) {
                     self.refresh_trash(cx);
                 } else {
@@ -1217,7 +1422,11 @@ impl Browser {
                 }
             }
             Command::CopyPaths => {
-                if self.file_selection_focused(window, cx) {
+                if self.list_keys_available(window, cx)
+                    && let Some(path) = self.selected_place_path()
+                {
+                    self.copy_selected_paths(&[path], cx);
+                } else if self.file_selection_focused(window, cx) {
                     let paths = self.selected_visible_paths();
                     if !paths.is_empty() {
                         self.copy_selected_paths(&paths, cx);
@@ -1225,7 +1434,11 @@ impl Browser {
                 }
             }
             Command::OpenInNewTab => {
-                if self.file_selection_focused(window, cx) {
+                if self.list_keys_available(window, cx)
+                    && let Some(path) = self.selected_place_path()
+                {
+                    self.open_tab(path, false, window, cx);
+                } else if self.file_selection_focused(window, cx) {
                     self.open_selected_in_new_tabs(window, cx);
                 }
             }
@@ -1236,6 +1449,12 @@ impl Browser {
                     self.select_all_files(window, cx);
                 }
             }
+            Command::DeselectAll => {
+                if self.list_keys_available(window, cx) {
+                    self.clear_list_selection(window, cx);
+                }
+            }
+            Command::ContextMenu => self.open_selection_menu(window, cx),
             Command::Rename => {
                 if self.file_selection_focused(window, cx) {
                     self.request_rename(window, cx);
@@ -1292,13 +1511,22 @@ impl Browser {
                     self.clear_recent(cx);
                 }
             }
+            Command::MountVolume | Command::UnmountVolume => {
+                self.run_volume_command(command, window, cx);
+            }
             Command::Hidden => {
                 let mut preferences = self.preferences.clone();
                 preferences.files.show_hidden = !preferences.files.show_hidden;
                 self.apply_preferences(preferences, window, cx);
             }
             Command::Open => {
-                if matches!(
+                if self.collection == Some(Collection::Volumes) {
+                    if self.list_keys_available(window, cx)
+                        && let Some(id) = self.volume_action_target(cx)
+                    {
+                        self.open_volume(id, window, cx);
+                    }
+                } else if matches!(
                     self.collection,
                     Some(Collection::Recent | Collection::Favorites)
                 ) {
@@ -1364,16 +1592,19 @@ impl Browser {
     }
 }
 
-/// One tab slot by id, including the fixed Home slot.
+/// One directory slot by id, including fixed Home and volume pages.
 fn slot_mut<'a>(
     id: u64,
     home: &'a mut OpenTab,
     tabs: &'a mut Vec<OpenTab>,
+    volumes: &'a mut devices::pages::Pages,
 ) -> Option<&'a mut OpenTab> {
     if id == HOME_TAB_ID {
         Some(home)
     } else {
-        tabs.iter_mut().find(|slot| slot.id == id)
+        tabs.iter_mut()
+            .chain(volumes.entries.iter_mut().map(|page| &mut page.slot))
+            .find(|slot| slot.id == id)
     }
 }
 

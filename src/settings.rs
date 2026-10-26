@@ -37,6 +37,19 @@ pub struct FilesPreferences {
     pub show_hidden: bool,
     /// Visible columns when no folder-specific override applies.
     pub columns: columns::Layout,
+    pub sidebar: SidebarPreferences,
+    /// Default browsing root, keyed by the volume's stable identity.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub volume_mount_points: std::collections::BTreeMap<String, std::path::PathBuf>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SidebarPreferences {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tabs_height: Option<f32>,
+    #[serde(alias = "devices_collapsed")]
+    pub volumes_collapsed: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

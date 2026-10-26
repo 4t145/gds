@@ -604,9 +604,9 @@ impl Browser {
     pub(super) fn folder_settled(&self) -> bool {
         !self.settings_open
             && self.collection.is_none()
-            && self
-                .active()
-                .is_some_and(|slot| slot.tab.is_some() && !slot.is_loading())
+            && self.active().is_some_and(|slot| {
+                slot.files_available() && slot.tab.is_some() && !slot.is_loading()
+            })
     }
 
     pub(super) fn columns_available(&self) -> bool {
@@ -853,7 +853,15 @@ impl Browser {
     /// A sort key whose column is now hidden falls back to the default ordering
     /// so the table never keeps an ordering with no visible header arrow.
     pub(super) fn reproject_columns(&mut self, cx: &mut Context<Self>) {
-        for slot in std::iter::once(&mut self.home_tab).chain(self.tabs.iter_mut()) {
+        for slot in std::iter::once(&mut self.home_tab)
+            .chain(self.tabs.iter_mut())
+            .chain(
+                self.volume_pages
+                    .entries
+                    .iter_mut()
+                    .map(|page| &mut page.slot),
+            )
+        {
             let sort = sort_for(
                 slot.path(),
                 slot.sort,

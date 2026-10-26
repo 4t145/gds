@@ -34,6 +34,42 @@ impl Motion {
 }
 
 impl Browser {
+    pub(super) fn on_list_background_press(
+        &mut self,
+        _: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings_open || window.has_active_dialog(cx) {
+            return;
+        }
+        self.clear_list_selection(window, cx);
+    }
+
+    pub(super) fn clear_list_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.collection {
+            Some(Collection::Volumes) => self.selected_volume = None,
+            Some(Collection::Trash) => self.trash.clear_selection(),
+            Some(collection @ (Collection::Recent | Collection::Favorites)) => {
+                if let Some(cursor) = self.place_cursor_mut(collection) {
+                    cursor.path = None;
+                }
+            }
+            Some(Collection::Network) => return,
+            None => {
+                if let Some(slot) = self.active_mut() {
+                    if let Some(tab) = &mut slot.tab {
+                        tab.navigation.view_mut().selected.clear();
+                    }
+                    slot.cursor = None;
+                    slot.anchor = None;
+                }
+            }
+        }
+        self.focus.focus(window, cx);
+        cx.notify();
+    }
+
     /// Whether the visible page accepts plain list-navigation keys.
     ///
     /// A dialog or the application menu owns its own keys, an armed tab prefix
@@ -41,6 +77,7 @@ impl Browser {
     pub(super) fn list_keys_available(&self, window: &mut Window, cx: &mut App) -> bool {
         !self.settings_open
             && !self.menu_open
+            && self.keyboard_menu.is_none()
             && self.tab_prefix.is_none()
             && !self.rename.read(cx).is_open()
             && !window.has_active_dialog(cx)
@@ -192,23 +229,20 @@ impl Browser {
     /// The cursor may name a record the list no longer holds, so the path is
     /// checked against the visible rows first.
     pub(super) fn open_place_cursor(&mut self, cx: &mut Context<Self>) {
-        let Some(collection) = self.place_collection() else {
+        let Some(path) = self.selected_place_path() else {
             return;
         };
-        let Some(path) = self
-            .place_cursor(collection)
-            .and_then(|cursor| cursor.path.clone())
-        else {
-            return;
-        };
+        self.collection = None;
+        self.activate_path(path, cx);
+    }
+
+    pub(super) fn selected_place_path(&self) -> Option<PathBuf> {
+        let collection = self.place_collection()?;
+        let path = self.place_cursor(collection)?.path.clone()?;
         let listed = collection
             .place_paths(&self.places)
             .is_some_and(|paths| paths.iter().any(|entry| Path::new(entry) == path.as_path()));
-        if !listed {
-            return;
-        }
-        self.collection = None;
-        self.activate_path(path, cx);
+        listed.then_some(path)
     }
 
     pub(super) fn select(

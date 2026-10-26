@@ -273,6 +273,10 @@ fn superseded_and_cancelled_background_results_cannot_replace_the_current_locati
     let mut navigation = fixture.navigation();
     let older = navigation.prepare_open(&fixture.b);
     let latest = navigation.prepare_open(&fixture.c);
+    assert!(
+        !navigation.cancel_request(&older),
+        "a disconnected older request cannot cancel a newer navigation"
+    );
     assert_eq!(
         navigation
             .finish_load(&older, older.load())
@@ -285,7 +289,7 @@ fn superseded_and_cancelled_background_results_cannot_replace_the_current_locati
     assert_eq!(navigation.path(), fixture.c);
 
     let cancelled = navigation.prepare_open(&fixture.b);
-    navigation.cancel_pending();
+    assert!(navigation.cancel_request(&cancelled));
     assert_eq!(
         navigation
             .finish_load(&cancelled, cancelled.load())

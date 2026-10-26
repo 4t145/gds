@@ -180,7 +180,10 @@ impl Browser {
         self.dismiss_tab_prefix();
         match collection {
             Collection::Trash => self.open_trash(window, cx),
-            Collection::Recent | Collection::Favorites | Collection::Network => {
+            Collection::Recent
+            | Collection::Favorites
+            | Collection::Network
+            | Collection::Volumes => {
                 self.collection = Some(collection);
                 cx.notify();
             }

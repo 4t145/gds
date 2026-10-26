@@ -1929,9 +1929,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-channel",
+ "async-io",
  "chrono",
  "directories",
  "fluent-bundle",
+ "futures-lite",
  "gds-uim",
  "globset",
  "gpui-kit",
@@ -1952,6 +1954,7 @@ dependencies = [
  "unic-langid",
  "url",
  "wl-clipboard-rs",
+ "zbus",
 ]
 
 [[package]]

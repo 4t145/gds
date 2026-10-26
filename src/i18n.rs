@@ -58,8 +58,12 @@ impl Global for Messages {}
 /// # Errors
 /// Returns an error when a bundled Fluent resource cannot be parsed or registered.
 pub fn install(language: Language, cx: &mut App) -> Result<(), Error> {
-    let resources: [(&str, &str); 6] = match language {
+    let resources: [(&str, &str); 7] = match language {
         Language::English => [
+            (
+                "devices-en-US.ftl",
+                include_str!("i18n/assets/devices-en-US.ftl"),
+            ),
             ("en-US.ftl", include_str!("i18n/assets/en-US.ftl")),
             ("time-en-US.ftl", include_str!("i18n/assets/time-en-US.ftl")),
             (
@@ -77,6 +81,10 @@ pub fn install(language: Language, cx: &mut App) -> Result<(), Error> {
             ),
         ],
         Language::Chinese => [
+            (
+                "devices-zh-CN.ftl",
+                include_str!("i18n/assets/devices-zh-CN.ftl"),
+            ),
             ("zh-CN.ftl", include_str!("i18n/assets/zh-CN.ftl")),
             ("time-zh-CN.ftl", include_str!("i18n/assets/time-zh-CN.ftl")),
             (

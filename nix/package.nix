@@ -27,6 +27,7 @@ rustPlatform.buildRustPackage {
   };
 
   nativeBuildInputs = [ pkg-config cmake makeWrapper copyDesktopItems rustPlatform.bindgenHook ];
+  nativeCheckInputs = [ pkgs.dbus ];
   buildInputs = libraries;
   dontUseCmakeConfigure = true;
   cargoBuildFlags = [ "--bin" "gds-files" ];

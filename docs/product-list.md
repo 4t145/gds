@@ -19,8 +19,8 @@ NixOS的可视化管理界面，系统管理
 ## Texts （Te）
 简易的文本编辑器。支持Markdown。
 
-## Audios （Au）
-视频播放及管理
+## MediaGallery （Mg）
+多媒体播放及管理
 
 ## Tasks  （Ta）
 任务管理器

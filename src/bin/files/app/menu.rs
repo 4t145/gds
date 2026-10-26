@@ -33,16 +33,18 @@ const APP_NAME: &str = "GDS Files";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MenuEntry {
     Settings,
+    Volumes,
     About,
 }
 
 impl MenuEntry {
     /// The rows of the application menu, in order.
-    const ROWS: [Self; 2] = [Self::Settings, Self::About];
+    const ROWS: [Self; 3] = [Self::Settings, Self::Volumes, Self::About];
 
     fn label_id(self) -> &'static str {
         match self {
             Self::Settings => Command::Settings.label_id(),
+            Self::Volumes => "volumes-manage",
             Self::About => "about",
         }
     }
@@ -50,6 +52,7 @@ impl MenuEntry {
     fn icon(self) -> IconName {
         match self {
             Self::Settings => IconName::Settings,
+            Self::Volumes => IconName::HardDrive,
             Self::About => IconName::Info,
         }
     }
@@ -58,7 +61,7 @@ impl MenuEntry {
     fn command(self) -> Option<Command> {
         match self {
             Self::Settings => Some(Command::Settings),
-            Self::About => None,
+            Self::About | Self::Volumes => None,
         }
     }
 
@@ -82,6 +85,12 @@ impl MenuEntry {
                 Browser::menu_command(view.clone(), Command::Settings)(event, window, cx);
             }
             Self::About => Browser::show_about(view.clone(), window, cx),
+            Self::Volumes => {
+                let _ = view.update(cx, |browser, cx| {
+                    browser.menu_open = false;
+                    browser.show_collection(Collection::Volumes, window, cx);
+                });
+            }
         }
     }
 }
@@ -264,7 +273,7 @@ fn popup(
     menu.into_any_element()
 }
 
-/// The menu rows: settings and the application's own about entry.
+/// Application pages and the about entry.
 fn rows(mut menu: PopupMenu, view: WeakEntity<Browser>) -> PopupMenu {
     for entry in MenuEntry::ROWS {
         let render = entry.render();

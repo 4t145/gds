@@ -1,4 +1,4 @@
-use super::{Command, SETTINGS_CONTEXT, WORKSPACE_CONTEXT, bindings};
+use super::{Command, SETTINGS_CONTEXT, VOLUME_CONTEXT, WORKSPACE_CONTEXT, bindings};
 use gpui_kit::{AsKeystroke, KeyContext, Keymap, Keystroke};
 
 fn context(source: &'static str) -> Vec<KeyContext> {
@@ -68,5 +68,84 @@ fn menu_displays_alt_m_and_keeps_f10() {
         let (resolved, _) =
             keymap.bindings_for_input(&[keystroke(source)], &context(SETTINGS_CONTEXT));
         assert!(resolved.is_empty(), "{source} stays out of settings");
+    }
+}
+
+/// Mounting keys belong to volume pages. In a picker, another location or
+/// Settings the same stroke cannot act on a previously selected volume.
+#[test]
+fn volume_operations_only_resolve_in_the_volume_context() {
+    let keymap = Keymap::new(bindings());
+    for (command, stroke) in [
+        (Command::MountVolume, "ctrl-m"),
+        (Command::UnmountVolume, "ctrl-shift-m"),
+    ] {
+        let stroke = keystroke(stroke);
+        let action = command.action();
+        let (resolved, pending) =
+            keymap.bindings_for_input(&[stroke.clone()], &context("Workspace Volume"));
+        assert!(!pending);
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].action().partial_eq(action.as_ref()));
+        assert_eq!(command.context(), Some(VOLUME_CONTEXT));
+        for source in [WORKSPACE_CONTEXT, SETTINGS_CONTEXT, "Workspace Picker"] {
+            let (resolved, _) = keymap.bindings_for_input(&[stroke.clone()], &context(source));
+            assert!(
+                resolved.is_empty(),
+                "{source} must not act on a hidden volume"
+            );
+        }
+    }
+    for old in ["alt-g", "alt-u"] {
+        let (resolved, _) =
+            keymap.bindings_for_input(&[keystroke(old)], &context("Workspace Volume"));
+        assert!(resolved.is_empty(), "the old volume binding is removed");
+    }
+}
+
+#[test]
+fn selection_commands_do_not_claim_settings_or_plain_f10() {
+    let keymap = Keymap::new(bindings());
+    for (stroke, command) in [
+        ("ctrl-shift-a", Command::DeselectAll),
+        ("shift-f10", Command::ContextMenu),
+        ("f10", Command::Menu),
+    ] {
+        let action = command.action();
+        let (resolved, pending) =
+            keymap.bindings_for_input(&[keystroke(stroke)], &context(WORKSPACE_CONTEXT));
+        assert!(!pending);
+        assert!(resolved[0].action().partial_eq(action.as_ref()));
+        let (resolved, _) =
+            keymap.bindings_for_input(&[keystroke(stroke)], &context(SETTINGS_CONTEXT));
+        assert!(resolved.is_empty());
+    }
+}
+
+#[test]
+fn popup_keys_take_precedence_over_workspace_commands() {
+    let keymap = Keymap::new(bindings());
+    let cases: [(&str, Box<dyn gpui_kit::Action>); 2] = [
+        ("escape", Box::new(gpui_kit::base::actions::Cancel)),
+        (
+            "enter",
+            Box::new(gpui_kit::base::actions::Confirm { secondary: false }),
+        ),
+    ];
+    for (stroke, expected) in cases {
+        let (resolved, _) = keymap.bindings_for_input(
+            &[keystroke(stroke)],
+            &[
+                KeyContext::parse("Workspace Volume").expect("valid workspace context"),
+                KeyContext::parse("PopupMenu").expect("valid popup context"),
+            ],
+        );
+        assert!(
+            resolved
+                .first()
+                .expect("popup key is bound")
+                .action()
+                .partial_eq(expected.as_ref())
+        );
     }
 }
