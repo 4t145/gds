@@ -138,6 +138,9 @@ impl Render for Browser {
                 on_action: (cx, Self::on_empty_trash).Context::listener;
                 on_action: (cx, Self::on_clear_recent_action).Context::listener;
                 on_action: (cx, Self::on_picker_confirm).Context::listener;
+                on_action: (cx, Self::on_picker_confirm_with_control).Context::listener;
+                on_action: (cx, Self::on_picker_read_only).Context::listener;
+                on_action: (cx, Self::on_picker_next_filter).Context::listener;
                 on_action: (cx, Self::on_picker_cancel).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_home).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_recent).Context::listener;

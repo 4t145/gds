@@ -1,4 +1,4 @@
-//! Single-file selection mode.
+//! File and directory selection modes.
 //!
 //! In this mode the browser stays a browser: folders open, tabs and locations
 //! work, and the file operations the user already has are never intercepted.
@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use gds::ui::{self, IconButton, Shortcut};
+use gds::ui::{self, Shortcut};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
@@ -22,7 +22,16 @@ use gpui_kit::prelude::*;
 use super::directory::{Entry, EntryKind, LinkStatus};
 use super::*;
 
-gpui_kit::actions!(gds_files_picker, [PickerConfirm, PickerCancel]);
+gpui_kit::actions!(
+    gds_files_picker,
+    [
+        PickerConfirm,
+        PickerConfirmWithControl,
+        PickerCancel,
+        PickerReadOnly,
+        PickerNextFilter
+    ]
+);
 
 /// Key context of the picker page.
 ///
@@ -42,7 +51,10 @@ pub(super) struct PickerNotice;
 pub(super) fn register(cx: &mut App) {
     cx.bind_keys([
         binding("alt-a", Box::new(PickerConfirm)),
+        binding("ctrl-enter", Box::new(PickerConfirmWithControl)),
         binding("alt-c", Box::new(PickerCancel)),
+        binding("alt-r", Box::new(PickerReadOnly)),
+        binding("alt-t", Box::new(PickerNextFilter)),
     ]);
 }
 
@@ -84,7 +96,8 @@ impl Projection {
     /// Whether an entry belongs in the list: every folder stays visible and
     /// navigable, files have to match the active group.
     pub(super) fn keeps(&self, entry: &Entry) -> bool {
-        Self::is_directory(entry) || self.options.matches(self.active_filter, &entry.path)
+        Self::is_directory(entry)
+            || (!self.options.directory && self.options.matches(self.active_filter, &entry.path))
     }
 
     /// Whether the active group narrows files at all.
@@ -112,15 +125,29 @@ pub(super) struct State {
     options: Arc<crate::picker::Options>,
     active_filter: usize,
     read_only: bool,
+    filter_menu_open: bool,
     /// Set once the selection is being written and the window is closing, so a
     /// second confirm can neither print twice nor reopen anything.
     completing: bool,
 }
 
 impl State {
+    pub(super) fn allows_multiple(&self) -> bool {
+        self.options.multiple
+    }
+
+    pub(super) fn accepts_entry(&self, entry: &Entry) -> bool {
+        if self.options.directory {
+            Projection::is_directory(entry)
+        } else {
+            !Projection::is_directory(entry) && self.matches(&entry.path)
+        }
+    }
+
     pub(super) fn new(options: crate::picker::Options) -> Self {
         Self {
             read_only: options.read_only,
+            filter_menu_open: false,
             options: Arc::new(options),
             active_filter: 0,
             completing: false,
@@ -159,30 +186,103 @@ impl State {
 }
 
 impl Browser {
-    /// The one path the visible page has selected, regardless of what it is.
-    fn selected_picker_path(&self) -> Option<PathBuf> {
-        let slot = self.active()?;
-        let tab = slot.tab.as_ref()?;
-        let [path] = tab.navigation.view().selected.as_slice() else {
-            return None;
-        };
-        Some(path.clone())
+    fn picker_actions_available(&self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.picker
+            .as_ref()
+            .is_some_and(|picker| !picker.completing && !picker.filter_menu_open)
+            && !self.settings_open
+            && !self.menu_open
+            && !self.path_editing
+            && !self.rename.read(cx).is_open()
+            && !window.has_active_dialog(cx)
     }
 
-    /// The one path a confirm would report, if the visible page holds exactly
-    /// one selectable file.
-    pub(super) fn picker_candidate(&self) -> Option<PathBuf> {
+    pub(super) fn on_picker_confirm_with_control(
+        &mut self,
+        _: &PickerConfirmWithControl,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_picker(window, cx);
+    }
+
+    pub(super) fn on_picker_read_only(
+        &mut self,
+        _: &PickerReadOnly,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.picker_actions_available(window, cx) {
+            return;
+        }
+        if let Some(picker) = self
+            .picker
+            .as_ref()
+            .filter(|picker| !picker.options.directory)
+        {
+            self.set_picker_read_only(!picker.read_only, cx);
+        }
+    }
+
+    pub(super) fn on_picker_next_filter(
+        &mut self,
+        _: &PickerNextFilter,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.picker_actions_available(window, cx) {
+            return;
+        }
+        if let Some(picker) = self
+            .picker
+            .as_ref()
+            .filter(|picker| !picker.options.directory && picker.filters().len() > 1)
+        {
+            self.set_picker_filter((picker.active_filter + 1) % picker.filters().len(), cx);
+        }
+    }
+
+    /// Paths a confirm would report. An empty directory selection chooses the
+    /// current folder; pending navigation must never confirm the old location.
+    fn picker_candidates(&self) -> Option<Vec<PathBuf>> {
         let picker = self.picker.as_ref()?;
         if picker.completing {
             return None;
         }
-        let path = self.selected_picker_path()?;
-        if !picker.matches(&path) {
+        let slot = self.active()?;
+        if slot.is_loading() {
             return None;
         }
-        let slot = self.active()?;
-        let entry = slot.table_rows.iter().find(|entry| entry.path == path)?;
-        (!Projection::is_directory(entry)).then_some(path)
+        let tab = slot.tab.as_ref()?;
+        if picker.options.directory {
+            let selected = &tab.navigation.view().selected;
+            if selected.is_empty() {
+                return Some(vec![tab.navigation.path().to_path_buf()]);
+            }
+            if !picker.options.multiple && selected.len() > 1 {
+                return None;
+            }
+            return selected
+                .iter()
+                .all(|path| {
+                    slot.table_rows
+                        .iter()
+                        .any(|entry| entry.path == *path && Projection::is_directory(entry))
+                })
+                .then(|| selected.clone());
+        }
+        let selected = &tab.navigation.view().selected;
+        if selected.is_empty() || (!picker.options.multiple && selected.len() > 1) {
+            return None;
+        }
+        selected
+            .iter()
+            .all(|path| {
+                slot.table_rows
+                    .iter()
+                    .any(|entry| entry.path == *path && picker.accepts_entry(entry))
+            })
+            .then(|| selected.clone())
     }
 
     pub(super) fn set_picker_filter(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -237,7 +337,13 @@ impl Browser {
                 self.navigate(path, cx);
                 cx.notify();
             }
-            Ok(metadata) if metadata.is_file() => self.complete_picker_file(Some(path), cx),
+            Ok(metadata) if metadata.is_file() => {
+                let paths = self
+                    .picker_candidates()
+                    .filter(|paths| paths.contains(&path))
+                    .unwrap_or_else(|| vec![path]);
+                self.complete_picker_selection(paths, cx)
+            }
             Ok(_) => self.picker_notice("picker-not-file", None, cx),
             Err(error) => self.picker_notice("picker-missing", Some(error.to_string()), cx),
         }
@@ -248,39 +354,60 @@ impl Browser {
     /// The path is revalidated here rather than trusted from the render state:
     /// the entry may have gone away or stopped being a regular file, and a
     /// stale projection must not let an out-of-group file through.
-    pub(super) fn complete_picker_file(
-        &mut self,
-        candidate: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) {
-        let read_only = match self.picker.as_ref() {
-            Some(picker) if !picker.completing => picker.read_only,
+    fn complete_picker_selection(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let (read_only, filter_index, directory, multiple) = match self.picker.as_ref() {
+            Some(picker) if !picker.completing => (
+                picker.read_only,
+                picker.active_filter,
+                picker.options.directory,
+                picker.options.multiple,
+            ),
             _ => return,
         };
-        let Some(path) = candidate else {
-            self.picker_notice("picker-select-file", None, cx);
+        if paths.is_empty() || (!multiple && paths.len() != 1) {
+            self.picker_notice(
+                if directory {
+                    "picker-select-directory"
+                } else {
+                    "picker-select-file"
+                },
+                None,
+                cx,
+            );
             return;
-        };
-        match std::fs::metadata(&path) {
-            Ok(metadata) if metadata.is_file() => {}
-            Ok(_) => {
-                self.picker_notice("picker-not-file", None, cx);
-                return;
+        }
+        for path in &paths {
+            match std::fs::metadata(path) {
+                Ok(metadata)
+                    if (directory && metadata.is_dir()) || (!directory && metadata.is_file()) => {}
+                Ok(_) => {
+                    self.picker_notice(
+                        if directory {
+                            "picker-not-directory"
+                        } else {
+                            "picker-not-file"
+                        },
+                        None,
+                        cx,
+                    );
+                    return;
+                }
+                Err(error) => {
+                    self.picker_notice("picker-missing", Some(error.to_string()), cx);
+                    return;
+                }
             }
-            Err(error) => {
-                self.picker_notice("picker-missing", Some(error.to_string()), cx);
+            if !directory
+                && !self
+                    .picker
+                    .as_ref()
+                    .is_some_and(|picker| picker.matches(&path))
+            {
+                self.picker_notice("picker-filter-mismatch", None, cx);
                 return;
             }
         }
-        if !self
-            .picker
-            .as_ref()
-            .is_some_and(|picker| picker.matches(&path))
-        {
-            self.picker_notice("picker-filter-mismatch", None, cx);
-            return;
-        }
-        let written = crate::picker::emit_selection(&path, read_only);
+        let written = crate::picker::emit_selections(&paths, read_only, filter_index);
         self.mark_picker_complete();
         match written {
             Ok(()) => crate::picker::mark_confirmed(),
@@ -326,16 +453,11 @@ impl Browser {
     /// Local modes keep their own keys: a dialog, the menu, Settings or a rename
     /// editor must never reach out and close the window underneath it.
     pub(super) fn confirm_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.picker.is_none()
-            || self.settings_open
-            || self.menu_open
-            || self.rename.read(cx).is_open()
-            || window.has_active_dialog(cx)
-        {
+        if !self.picker_actions_available(window, cx) {
             return;
         }
-        let candidate = self.selected_picker_path();
-        self.complete_picker_file(candidate, cx);
+        let paths = self.picker_candidates().unwrap_or_default();
+        self.complete_picker_selection(paths, cx);
     }
 
     pub(super) fn on_picker_confirm(
@@ -350,10 +472,12 @@ impl Browser {
     pub(super) fn on_picker_cancel(
         &mut self,
         _: &PickerCancel,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.cancel_picker(cx);
+        if self.picker_actions_available(window, cx) {
+            self.cancel_picker(cx);
+        }
     }
 
     pub(super) fn on_picker_confirm_click(
@@ -380,6 +504,7 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let available = self.picker_actions_available(window, cx);
         let Some(picker) = self.picker.as_ref() else {
             return el! { .div }.into_any_element();
         };
@@ -389,21 +514,56 @@ impl Browser {
         let active_filter = picker.active_filter;
         let completion_blocked = picker.completing;
         let read_only = picker.read_only;
+        let directory = picker.options.directory;
         let view = cx.entity().downgrade();
+
+        let next_filter_shortcut = Shortcut::new(Box::new(PickerNextFilter), Some(PICKER_CONTEXT));
+        let filter_hint = if available && picker.filters().len() > 1 {
+            ui::keytips::suffix_anchor(
+                window,
+                cx,
+                "picker-filter-hint".into(),
+                next_filter_shortcut.clone(),
+            )
+        } else {
+            el! { .div { size_0 } }.into_any_element()
+        };
 
         let filter_view = view.clone();
         let filter = Button::new("picker-filter")
             .small()
             .label(picker.filter_label(active_filter, cx))
-            .tooltip(i18n::text("picker-filter", cx))
+            .when(picker.filters().len() > 1, |button| {
+                button.tooltip_with_action(
+                    i18n::text("picker-next-filter", cx),
+                    &PickerNextFilter,
+                    Some(PICKER_CONTEXT),
+                )
+            })
+            .when(picker.filters().len() <= 1, |button| {
+                button.tooltip(i18n::text("picker-filter", cx))
+            })
+            .child(filter_hint)
             .dropdown_caret(true)
             .dropdown_menu(move |menu, _, _| {
                 filter_menu(menu, labels.clone(), active_filter, filter_view.clone())
             });
+        let menu_view = view.clone();
+        let filter = filter.on_open_change(move |open, _, cx| {
+            if let Some(view) = menu_view.upgrade() {
+                view.update(cx, |this, cx| {
+                    if let Some(picker) = this.picker.as_mut() {
+                        picker.filter_menu_open = *open;
+                    }
+                    cx.notify();
+                });
+            }
+        });
 
         let read_only_button = Checkbox::new("picker-read-only")
             .small()
             .label(i18n::text("picker-read-only", cx))
+            .disabled(!available)
             .checked(read_only);
         let read_view = view.clone();
         let read_only_button = read_only_button.on_change(move |checked, _, cx| {
@@ -411,20 +571,67 @@ impl Browser {
                 view.update(cx, |this, cx| this.set_picker_read_only(*checked, cx));
             }
         });
+        let read_only_shortcut = Shortcut::new(Box::new(PickerReadOnly), Some(PICKER_CONTEXT));
+        let read_only_hint = if available {
+            ui::keytips::suffix_anchor(
+                window,
+                cx,
+                "picker-read-only-hint".into(),
+                read_only_shortcut.clone(),
+            )
+        } else {
+            el! { .div { size_0 } }.into_any_element()
+        };
+        let read_only_button = div()
+            .id("picker-read-only-control")
+            .flex()
+            .items_center()
+            .tooltip(ui::shortcut_tooltip(
+                i18n::text("picker-read-only", cx),
+                read_only_shortcut,
+            ))
+            .child(read_only_button)
+            .child(read_only_hint);
 
         let on_cancel = cx.listener(Self::on_picker_cancel_click);
         let cancel_shortcut = cancel_shortcut();
+        let cancel_label = i18n::text("picker-cancel", cx);
+        let cancel_hint = if available {
+            ui::keytips::suffix_anchor(
+                window,
+                cx,
+                "picker-cancel-hint".into(),
+                cancel_shortcut.clone(),
+            )
+        } else {
+            el! { .div { size_0 } }.into_any_element()
+        };
+        let cancel = Button::new("picker-cancel")
+            .small()
+            .icon(Icon::new(IconName::X))
+            .label(cancel_label.clone())
+            .disabled(!available)
+            .child(cancel_hint)
+            .on_click(on_cancel);
         let cancel = el! {
-            "picker-cancel".IconButton::new {
-                icon: IconName::X; label: $i18n::text("picker-cancel", cx);
-                shortcut: cancel_shortcut; on_click: on_cancel;
-            }
+            .div {
+                # "picker-cancel-button"; flex_shrink_0;
+                tooltip_show_delay: ui::TOOLTIP_DELAY;
+                tooltip: $(ui::shortcut_tooltip(cancel_label, cancel_shortcut));
+            } [cancel]
         };
 
         // A disabled decision has no key that could run it, so it stages no
         // hint; the reserved tail keeps the button from reflowing in between.
-        let enabled = !completion_blocked && self.picker_candidate().is_some();
-        let confirm_label = i18n::text("picker-confirm", cx);
+        let enabled = available && !completion_blocked && self.picker_candidates().is_some();
+        let confirm_label = i18n::text(
+            if directory {
+                "picker-confirm-directory"
+            } else {
+                "picker-confirm"
+            },
+            cx,
+        );
         let confirm_shortcut = confirm_shortcut();
         let hint = if enabled {
             ui::keytips::suffix_anchor(
@@ -437,6 +644,16 @@ impl Browser {
             el! { .div { size_0 } }.into_any_element()
         };
         let on_confirm = cx.listener(Self::on_picker_confirm_click);
+        let control_hint = if enabled {
+            ui::keytips::anchor(
+                window,
+                cx,
+                "picker-confirm-control-hint".into(),
+                Shortcut::new(Box::new(PickerConfirmWithControl), Some(PICKER_CONTEXT)),
+            )
+        } else {
+            el! { .div { size_0 } }.into_any_element()
+        };
         let confirm = Button::new("picker-confirm")
             .primary()
             .small()
@@ -447,18 +664,29 @@ impl Browser {
             .on_click(on_confirm);
         let confirm = el! {
             .div {
-                # "picker-confirm-button"; flex_shrink_0;
+                # "picker-confirm-button"; relative; flex_shrink_0;
                 tooltip_show_delay: ui::TOOLTIP_DELAY;
                 tooltip: $(ui::shortcut_tooltip(confirm_label, confirm_shortcut));
-            } [confirm]
+            } [confirm, control_hint]
         };
 
+        let optional_controls = if directory {
+            Vec::new()
+        } else {
+            vec![
+                filter.into_any_element(),
+                read_only_button.into_any_element(),
+            ]
+        };
         el! {
             .div {
                 # "picker-controls"; flex; items_center; gap: CONTROL_GAP.px;
                 flex_shrink_0; min_w_0;
-            } [filter, read_only_button, cancel, confirm]
+            }
         }
+        .children(optional_controls)
+        .child(cancel)
+        .child(confirm)
         .into_any_element()
     }
 }

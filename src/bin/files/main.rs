@@ -16,6 +16,9 @@ use gds::{actions, i18n, settings, theme, time, typography};
 use gpui_kit::*;
 
 const APP_ID: &str = "io.github.fourt145.GdsFiles";
+const PICKER_APP_ID: &str = "io.github.fourt145.GdsFiles.Picker";
+const PICKER_WIDTH: f32 = 1100.;
+const PICKER_HEIGHT: f32 = 740.;
 const INITIAL_WIDTH: f32 = 1280.;
 const INITIAL_HEIGHT: f32 = 820.;
 /// The window has to hold the sidebar column, the file content and the details
@@ -26,7 +29,8 @@ const MIN_HEIGHT: f32 = 640.;
 
 const HELP: &str = "\
 gds-files [DIRECTORY]
-gds-files --pick-file [DIRECTORY] [--filter [LABEL:]GLOB[,GLOB...]]... [--read-only]
+gds-files --pick-file [DIRECTORY] [--multiple] [--filter [LABEL:]GLOB[,GLOB...]]... [--read-only]
+gds-files --pick-directory [DIRECTORY] [--multiple]
 
 A native GPUI file browser for Linux / Niri.
 Run inside a graphical Wayland or X11 session.
@@ -36,8 +40,10 @@ Arguments:
                          directory name that starts with '-'.
 
 Options:
-  --pick-file            Pick one file, print its absolute path as a single
+  --pick-file            Pick files, print absolute paths as a single
                          JSON line on stdout and exit.
+  --pick-directory       Pick a folder (or the current folder) and print JSON.
+  --multiple             Allow selecting multiple files or folders in picker mode.
   --filter [LABEL:]GLOB  Restrict the picker to matching file names. Repeatable;
                          every value becomes a switchable filter group, e.g.
                          --filter 'Text:*.txt,*.md' --filter '*.rs'
@@ -177,13 +183,23 @@ fn launch(arguments: picker::Arguments) -> anyhow::Result<()> {
                 }
             })
             .detach();
-            let bounds = Bounds::centered(None, size(px(INITIAL_WIDTH), px(INITIAL_HEIGHT)), cx);
+            let dimensions = if picking {
+                size(px(PICKER_WIDTH), px(PICKER_HEIGHT))
+            } else {
+                size(px(INITIAL_WIDTH), px(INITIAL_HEIGHT))
+            };
+            let bounds = Bounds::centered(None, dimensions, cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
                 titlebar: None,
                 window_background: WindowBackgroundAppearance::Transparent,
-                app_id: Some(APP_ID.to_owned()),
+                app_id: Some(if picking { PICKER_APP_ID } else { APP_ID }.to_owned()),
+                kind: if picking {
+                    WindowKind::Dialog
+                } else {
+                    WindowKind::Normal
+                },
                 ..Default::default()
             };
             if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {

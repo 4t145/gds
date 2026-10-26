@@ -1,4 +1,4 @@
-//! Single-file selection mode for `gds-files`.
+//! File and directory selection modes for `gds-files`.
 //!
 //! The picker turns the browser into a modal file chooser: the user picks one
 //! file, and the chosen path is reported as one JSON line on stdout. Filter
@@ -45,6 +45,8 @@ where
             Some("-h" | "--help") => requested.help = true,
             Some("-V" | "--version") => requested.version = true,
             Some("--pick-file") => requested.picker = true,
+            Some("--pick-directory") => requested.directory = true,
+            Some("--multiple") => requested.multiple = true,
             Some("--read-only") => requested.read_only = Some("--read-only"),
             Some(value) if value.starts_with("--filter=") => {
                 requested
@@ -67,6 +69,12 @@ where
         }
     }
 
+    if requested.picker && requested.directory {
+        return Err(Error::ConflictingModes);
+    }
+    if requested.multiple && !requested.directory && !requested.picker {
+        return Err(Error::MultipleRequiresPicker);
+    }
     if !requested.picker {
         if let Some(option) = requested.read_only {
             return Err(Error::PickerOnlyOption { option });
@@ -75,9 +83,11 @@ where
             return Err(Error::PickerOnlyOption { option: "--filter" });
         }
     }
-    let picker = requested.picker.then(|| Options {
+    let picker = (requested.picker || requested.directory).then(|| Options {
         filters: normalized_filters(requested.filters),
         read_only: requested.read_only.is_some(),
+        directory: requested.directory,
+        multiple: requested.multiple,
     });
     Ok(Arguments {
         directory,
@@ -111,7 +121,7 @@ fn normalized_filters(filters: Vec<Filter>) -> Vec<Filter> {
 pub struct Arguments {
     /// Start directory, kept as a raw path so non-UTF-8 names survive.
     pub directory: Option<PathBuf>,
-    /// Present only when `--pick-file` was given.
+    /// Present when either picker mode was requested.
     pub picker: Option<Options>,
     pub help: bool,
     pub version: bool,
@@ -124,6 +134,10 @@ pub struct Options {
     pub filters: Vec<Filter>,
     /// Initial read-only flag returned to the caller; it does not change file permissions.
     pub read_only: bool,
+    /// Select directories instead of regular files.
+    pub directory: bool,
+    /// Allow multiple selections of the requested type.
+    pub multiple: bool,
 }
 
 impl Options {
@@ -133,6 +147,8 @@ impl Options {
         Self {
             filters: normalized_filters(filters),
             read_only,
+            directory: false,
+            multiple: false,
         }
     }
 
@@ -223,28 +239,56 @@ impl Filter {
 /// # Errors
 /// Reports a path that cannot be made absolute, a serialization failure, or a
 /// failed stdout write.
-pub fn emit_selection(path: &Path, read_only: bool) -> Result<(), Error> {
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::path::absolute(path).map_err(|source| Error::AbsolutePath {
-            path: path.to_path_buf(),
-            source,
-        })?
-    };
-    let selection = Selection {
-        path: absolute.to_str(),
-        path_os: absolute
-            .to_str()
-            .is_none()
-            .then(|| absolute.clone().into_os_string()),
-        read_only,
-    };
-    let line = serde_json::to_vec(&selection).map_err(Error::Serialize)?;
+pub fn emit_selections(
+    paths: &[PathBuf],
+    read_only: bool,
+    filter_index: usize,
+) -> Result<(), Error> {
+    let line = selection_line(paths, read_only, filter_index)?;
     let mut stdout = std::io::stdout().lock();
     stdout.write_all(&line).map_err(Error::Output)?;
     stdout.write_all(b"\n").map_err(Error::Output)?;
     stdout.flush().map_err(Error::Output)
+}
+
+fn selection_line(
+    paths: &[PathBuf],
+    read_only: bool,
+    filter_index: usize,
+) -> Result<Vec<u8>, Error> {
+    let absolute: Vec<PathBuf> = paths
+        .iter()
+        .map(|path| {
+            std::path::absolute(path).map_err(|source| Error::AbsolutePath {
+                path: path.clone(),
+                source,
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let selections: Vec<Selection<'_>> = absolute
+        .iter()
+        .map(|path| Selection {
+            path: path.to_str(),
+            path_os: path
+                .to_str()
+                .is_none()
+                .then(|| path.clone().into_os_string()),
+            read_only,
+            filter_index,
+        })
+        .collect();
+    if let [selection] = selections.as_slice() {
+        serde_json::to_vec(selection).map_err(Error::Serialize)
+    } else {
+        #[derive(Serialize)]
+        struct Multiple<'a> {
+            selections: &'a [Selection<'a>],
+        }
+        serde_json::to_vec(&Multiple {
+            selections: &selections,
+        })
+        .map_err(Error::Serialize)
+    }
 }
 
 /// The selection line. A non-UTF-8 path is reported as `path: null` plus
@@ -256,6 +300,7 @@ struct Selection<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     path_os: Option<OsString>,
     read_only: bool,
+    filter_index: usize,
 }
 
 /// Records that the user picked a file and the result reached stdout.
@@ -280,6 +325,10 @@ pub fn exit_code() -> u8 {
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("--pick-file and --pick-directory cannot be combined")]
+    ConflictingModes,
+    #[error("--multiple requires --pick-file or --pick-directory")]
+    MultipleRequiresPicker,
     #[error("unknown argument {argument:?}")]
     UnknownArgument { argument: OsString },
     #[error("the {option} option requires a value")]
@@ -319,6 +368,12 @@ struct Requested {
     read_only: Option<&'static str>,
     filters: Vec<Filter>,
     picker: bool,
+    directory: bool,
+    multiple: bool,
     help: bool,
     version: bool,
 }
+
+#[cfg(test)]
+#[path = "picker/tests.rs"]
+mod tests;

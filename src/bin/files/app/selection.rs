@@ -217,7 +217,10 @@ impl Browser {
         modifiers: Modifiers,
         cx: &mut Context<Self>,
     ) {
-        let picker_mode = self.picker.is_some();
+        let single_selection = self
+            .picker
+            .as_ref()
+            .is_some_and(|picker| !picker.allows_multiple());
         let Some(slot) = self.active_mut() else {
             return;
         };
@@ -228,9 +231,8 @@ impl Browser {
         else {
             return;
         };
-        // A picker answers with one path, so a click or a keyboard motion always
-        // replaces the selection instead of extending it.
-        if picker_mode {
+        // Single-selection pickers replace the selection on every motion.
+        if single_selection {
             let Some(tab) = &mut slot.tab else {
                 return;
             };
@@ -277,25 +279,41 @@ impl Browser {
     }
 
     pub(super) fn select_all_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // A picker never holds more than one path.
-        if self.picker.is_some() {
+        if self
+            .picker
+            .as_ref()
+            .is_some_and(|picker| !picker.allows_multiple())
+        {
             return;
         }
         if !self.file_selection_focused(window, cx) {
             return;
         }
+        let picker_mode = self.picker.is_some();
+        let selectable: Option<Vec<PathBuf>> = self.picker.as_ref().and_then(|picker| {
+            self.active().map(|slot| {
+                slot.table_rows
+                    .iter()
+                    .filter(|entry| picker.accepts_entry(entry))
+                    .map(|entry| entry.path.clone())
+                    .collect()
+            })
+        });
         let Some(slot) = self.active_mut() else {
             return;
         };
         let Some(tab) = &mut slot.tab else {
             return;
         };
-        tab.navigation.view_mut().selected = slot
-            .table_rows
-            .iter()
-            .map(|entry| entry.path.clone())
-            .collect();
-        if slot.cursor.is_none() {
+        tab.navigation.view_mut().selected = selectable.unwrap_or_else(|| {
+            slot.table_rows
+                .iter()
+                .map(|entry| entry.path.clone())
+                .collect()
+        });
+        if picker_mode {
+            slot.cursor = tab.navigation.view().selected.first().cloned();
+        } else if slot.cursor.is_none() {
             slot.cursor = slot.table_rows.first().map(|entry| entry.path.clone());
         }
         slot.anchor = slot.cursor.clone();
