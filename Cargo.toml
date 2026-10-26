@@ -1,0 +1,61 @@
+[package]
+name = "gds"
+version = "0.1.0"
+edition = "2024"
+autobins = false
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "gds-files"
+path = "src/bin/files/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-channel = "2"
+chrono = "0.4"
+directories = "6"
+fluent-bundle = "0.16"
+gds-uim = { git = "https://github.com/4t145/gds-uim", rev = "94fe061888c45e137daff0d45c172c36bdb09882" }
+# The picker matches raw (possibly non-UTF-8) basenames, so globbing is done on
+# `Path` values instead of hand-rolled `String` matching.
+globset = "0.4"
+gpui-kit = "=0.8.0"
+# Header-only dimension/colour probing needs these decoders; every feature here
+# is already enabled by GPUI, so the resolved dependency set does not change.
+image = { version = "0.25.10", default-features = false, features = [
+    "bmp",
+    "gif",
+    "ico",
+    "jpeg",
+    "png",
+    "tiff",
+    "webp",
+] }
+infer = { version = "0.19", default-features = false }
+mime_guess = "2"
+notify = "8"
+open = "5"
+rust-ini = "0.21"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.9"
+trash = "5.2.9"
+unic-langid = "0.9"
+tempfile = "3"
+url = "2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1.1", features = ["fs", "event"] }
+wl-clipboard-rs = "0.9.4"
+
+[target.'cfg(unix)'.dependencies]
+# Owner/group names come from the system NSS interfaces (`getpwuid_r` /
+# `getgrgid_r`); we do not parse passwd files ourselves.
+nix = { version = "0.31", features = ["user"] }
+
+[profile.dev]
+debug = 1

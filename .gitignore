@@ -1,0 +1,12 @@
+/target/
+/result
+/result-*
+/.direnv/
+
+# Local environment and editor files are not part of the public source tree.
+.env
+.env.*
+!.env.example
+.DS_Store
+*.swp
+*.swo
