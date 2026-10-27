@@ -220,8 +220,7 @@ fn partial_tool_updates_reuse_acp_merging_and_preserve_content_locations_and_inp
 fn images_files_and_configuration_survive_replay() {
     let mut conversation = conversation();
     let updates: Vec<acp::SessionUpdate> =
-        serde_json::from_str(include_str!("../client/src/service/assets/updates.json"))
-            .expect("ACP fixtures");
+        serde_json::from_str(include_str!("tests/assets/updates.json")).expect("ACP fixtures");
     for (index, update) in updates.into_iter().enumerate() {
         apply(&mut conversation, index as u64 + 1, EventKind::Acp(update));
     }

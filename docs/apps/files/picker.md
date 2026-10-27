@@ -37,7 +37,7 @@ nix develop --impure --expr 'import ./shell.nix' --command \
 ## 窗口和快捷键
 
 选择器使用独立窗口标识 `io.github.fourt145.GdsFiles.Picker`，以对话框类型打开，默认大小 1100 × 740。
-Niri 悬浮规则和安装方法见 [NixOS 集成](../../nixos.md)。普通浏览窗口继续使用原来的标识和布局。
+Niri 悬浮规则和安装方法见 [NixOS 集成](nixos.md)。普通浏览窗口继续使用原来的标识和布局。
 
 | 快捷键 | 操作 |
 | --- | --- |

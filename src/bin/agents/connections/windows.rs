@@ -2,12 +2,13 @@ use std::{collections::HashMap, path::PathBuf};
 
 use bas::service::tls::ConnectionOptions as Target;
 use gpui_kit::{
-    App, AppContext, Bounds, Global, WindowBounds, WindowDecorations, WindowHandle, WindowKind,
-    WindowOptions, component::Root, prelude::*, px, size, transparent_black,
+    App, AppContext, Bounds, Global, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    component::Root, prelude::*, px, size, transparent_black,
 };
 use tokio::runtime::Handle;
 
 mod host;
+pub(crate) use host::bind_page_keys;
 pub(crate) use host::{Host as WorkspaceHost, workspace_view};
 
 #[derive(Clone)]
@@ -21,6 +22,31 @@ impl Global for Launch {}
 #[derive(Default)]
 struct Windows(HashMap<Target, WindowHandle<Root>>);
 impl Global for Windows {}
+
+pub(crate) fn target_page(window: gpui_kit::AnyWindowHandle, cx: &mut App) -> bool {
+    if !cx.windows().contains(&window) {
+        return false;
+    }
+    cx.default_global::<crate::agents::Changes>().target = Some(window.window_id());
+    true
+}
+
+pub(crate) fn page_host(cx: &App) -> Option<(WindowHandle<Root>, gpui_kit::Entity<WorkspaceHost>)> {
+    let preferred = cx
+        .try_global::<crate::agents::Changes>()
+        .and_then(|changes| changes.target)
+        .or_else(|| cx.active_window().map(|window| window.window_id()));
+    let mut windows = cx.windows();
+    windows.sort_by_key(|window| Some(window.window_id()) != preferred);
+    windows.into_iter().find_map(|window| {
+        let handle = window.downcast::<Root>()?;
+        let root = handle.read(cx).ok()?;
+        let host = crate::diagnostics::content(root, cx)
+            .downcast::<WorkspaceHost>()
+            .ok()?;
+        Some((handle, host))
+    })
+}
 
 pub(crate) fn init_windows(runtime: Handle, cwd: PathBuf, compact: bool, cx: &mut App) {
     cx.set_global(Launch {
@@ -54,9 +80,6 @@ pub(crate) fn window_options(compact: bool, cx: &App) -> WindowOptions {
             cx,
         ))),
         kind: WindowKind::Normal,
-        titlebar: cfg!(target_os = "macos").then(gpui_kit::component::TitleBar::title_bar_options),
-        app_owns_titlebar_drag: cfg!(target_os = "macos"),
-        window_decorations: Some(WindowDecorations::Client),
         window_background: cx.global::<crate::theme::Appearance>().background,
         window_min_size: Some(if compact {
             size(px(420.), px(80.))
@@ -64,7 +87,7 @@ pub(crate) fn window_options(compact: bool, cx: &App) -> WindowOptions {
             size(px(1000.), px(640.))
         }),
         app_id: Some("io.github.fourt145.GdsAgents".into()),
-        ..Default::default()
+        ..gds::ui::window::window_options()
     }
 }
 

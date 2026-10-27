@@ -9,6 +9,7 @@
 //! Kit; only the presentation is ours.
 
 mod interaction;
+pub mod surface;
 pub use interaction::{close_all, close_current, focus, is_focused};
 
 use std::collections::HashSet;
@@ -86,46 +87,72 @@ pub(crate) fn install(cx: &mut App) {
 
 #[derive(Default)]
 struct Host {
-    window: Option<AnyWindowHandle>,
-    list: Option<Entity<NotificationList>>,
-    overlay: Option<Entity<Overlay>>,
+    windows: std::collections::HashMap<gpui_kit::WindowId, WindowHost>,
 }
-
+struct WindowHost {
+    window: AnyWindowHandle,
+    list: Entity<NotificationList>,
+    overlay: Entity<Overlay>,
+}
 impl Global for Host {}
 
-/// Bind the window that hosts this suite's notifications.
-///
-/// The queue and the view that renders it are created here because both need
-/// the window. GDS applications open a single window today, so an application
-/// calls this once while building that window and mounts [`overlay`] in its
-/// root view.
+/// Register an independent queue for this window. Repeated registration keeps its notices.
 pub fn bind_window(window: &mut Window, cx: &mut App) {
+    if !cx.has_global::<Host>() {
+        cx.set_global(Host::default());
+        cx.on_window_closed(|cx, id| {
+            cx.global_mut::<Host>().windows.remove(&id);
+        })
+        .detach();
+    }
+    let id = window.window_handle().window_id();
+    if cx
+        .try_global::<Host>()
+        .is_some_and(|host| host.windows.contains_key(&id))
+    {
+        return;
+    }
     let list = cx.new(|cx| NotificationList::new(window, cx));
     let overlay = cx.new(|cx| Overlay::new(list.clone(), window, cx));
+    let live = cx.windows();
     let host = cx.default_global::<Host>();
-    host.window = Some(window.window_handle());
-    host.list = Some(list);
-    host.overlay = Some(overlay);
+    host.windows.retain(|_, entry| live.contains(&entry.window));
+    host.windows.insert(
+        id,
+        WindowHost {
+            window: window.window_handle(),
+            list,
+            overlay,
+        },
+    );
 }
 
-/// The host window's notification overlay, if [`bind_window`] ran.
-///
-/// The view is absolutely positioned, so the root places it last without
-/// reserving layout space for it.
+pub fn overlay_for(window: &Window, cx: &App) -> Option<Entity<Overlay>> {
+    cx.try_global::<Host>()?
+        .windows
+        .get(&window.window_handle().window_id())
+        .map(|host| host.overlay.clone())
+}
+
+/// The active window's queue, for application-level callers without a window borrow.
 pub fn overlay(cx: &App) -> Option<Entity<Overlay>> {
-    cx.try_global::<Host>()
-        .and_then(|host| host.overlay.clone())
+    let window = cx
+        .active_window()
+        .or_else(|| cx.windows().first().copied())?;
+    cx.try_global::<Host>()?
+        .windows
+        .get(&window.window_id())
+        .map(|host| host.overlay.clone())
 }
 
-/// The bound window and its queue while the window is open.
-fn host(cx: &App) -> Option<(AnyWindowHandle, Entity<NotificationList>)> {
-    let host = cx.try_global::<Host>()?;
-    let list = host.list.clone()?;
-    let window = host
-        .window
-        .filter(|window| cx.windows().contains(window))
-        .or_else(|| cx.windows().first().copied())?;
-    Some((window, list))
+fn host(window: AnyWindowHandle, cx: &App) -> Option<Entity<NotificationList>> {
+    if !cx.windows().contains(&window) {
+        return None;
+    }
+    cx.try_global::<Host>()?
+        .windows
+        .get(&window.window_id())
+        .map(|host| host.list.clone())
 }
 
 /// Mount a notification in the host window.
@@ -134,12 +161,20 @@ fn host(cx: &App) -> Option<(AnyWindowHandle, Entity<NotificationList>)> {
 /// deferred: re-entering the window borrow immediately would panic. A closed
 /// window is reported instead of silently dropping the notification.
 fn push(note: Notification, cx: &mut App) {
+    let target = cx.active_window().or_else(|| cx.windows().first().copied());
+    push_to(note, target, cx);
+}
+
+fn push_to(note: Notification, target: Option<AnyWindowHandle>, cx: &mut App) {
     // Kit's card paints the popover surface but leaves text to inheritance;
     // set the matching semantic foreground so the toast stays readable on
     // every theme.
     let note = note.text_color(cx.theme().popover_foreground);
     cx.defer(move |cx| {
-        if let Some((window, list)) = host(cx) {
+        let Some(window) = target.filter(|target| cx.windows().contains(target)) else {
+            return;
+        };
+        if let Some(list) = host(window, cx) {
             if let Err(error) = window.update(cx, |_, window, cx| {
                 list.update(cx, |list, cx| list.push(note, window, cx));
             }) {
@@ -148,10 +183,6 @@ fn push(note: Notification, cx: &mut App) {
             return;
         }
         // An application that never bound its window keeps Kit's default layer.
-        let Some(window) = cx.windows().first().copied() else {
-            eprintln!("Cannot show a notification: no open window");
-            return;
-        };
         if let Err(error) = window.update(cx, |_, window, cx| {
             window.push_notification(note, cx);
         }) {
@@ -236,13 +267,24 @@ impl Report {
     }
 
     pub fn show(self, cx: &mut App) {
+        let target = cx.active_window().or_else(|| cx.windows().first().copied());
+        self.show_to(target, cx);
+    }
+
+    /// Deliver a background result to its originating window. A closed origin
+    /// discards the toast without moving it to another window.
+    pub fn show_in(self, window: AnyWindowHandle, cx: &mut App) {
+        self.show_to(Some(window), cx);
+    }
+
+    fn show_to(self, target: Option<AnyWindowHandle>, cx: &mut App) {
         let mut note = self
             .notification()
             .autohide(!matches!(self.level, Level::Error));
         if let Some(identity) = self.identity {
             note = identity(note);
         }
-        push(note, cx);
+        push_to(note, target, cx);
     }
 
     /// Kit's notification for this report, before lifetime and slot policy.
@@ -360,8 +402,8 @@ impl Overlay {
     /// Create an independent notification queue for a window.
     /// Multi-window applications retain and mount this entity in that window.
     pub fn for_window(window: &mut Window, cx: &mut App) -> Entity<Self> {
-        let list = cx.new(|cx| NotificationList::new(window, cx));
-        cx.new(|cx| Self::new(list, window, cx))
+        bind_window(window, cx);
+        overlay_for(window, cx).expect("registered window owns a notification overlay")
     }
 
     /// Number of mounted notices, including ones finishing their close animation.

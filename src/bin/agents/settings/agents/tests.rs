@@ -1,49 +1,70 @@
 use super::*;
 use gpui_kit::{ScrollDelta, TestAppContext, point, px, size, test::TestWindowExt};
 
+struct TestConfiguration {
+    _directory: tempfile::TempDir,
+}
+impl gpui_kit::Global for TestConfiguration {}
+
 pub(super) fn init(cx: &mut App) {
     gpui_kit::init(cx);
+    if !cx.has_global::<crate::configuration::Configuration>() {
+        let directory = tempfile::tempdir().expect("frontend settings");
+        crate::configuration::init(Some(directory.path().join("frontend.json")), cx);
+        cx.set_global(TestConfiguration {
+            _directory: directory,
+        });
+    }
     crate::theme::init_default(cx);
 }
 
+fn configure(page: &mut Agents, registrations: Vec<AgentRegistration>, cx: &mut Context<Agents>) {
+    page.accept_configuration(bas::service::pb::AgentConfiguration {
+        profile: "remote-fixture".into(),
+        revision: "revision-1".into(),
+        registrations_json: serde_json::to_vec(&registrations).expect("RPC configuration"),
+    })
+    .expect("valid remote configuration");
+    page.apply_catalog(
+        bas::management::Catalog {
+            entries: vec![],
+            warning: None,
+            settings_path: None,
+            can_install: false,
+        },
+        cx,
+    );
+}
+
 #[gpui_kit::test]
-fn configuration_requests_disable_conflicting_editor_actions(cx: &mut TestAppContext) {
-    let directory = tempfile::tempdir().expect("settings");
-    let store = Store::at(directory.path().join("settings.json"));
+fn pending_requests_and_offline_save_preserve_the_draft_without_backend_file_access(
+    cx: &mut TestAppContext,
+) {
+    let directory = tempfile::tempdir().expect("backend settings");
+    let backend = directory.path().join("daemon.json");
+    std::fs::write(&backend, b"server-owned opaque configuration").expect("backend source");
+    let before = std::fs::read(&backend).expect("backend bytes");
     let spec = AgentSpec::acp("custom", Command::new("/fixture/agent", []));
-    let mut document = store.load().expect("document");
-    store
-        .save_agents(
-            &mut document,
-            vec![AgentSpec::embedded().into(), spec.clone().into()],
-        )
-        .expect("saved agents");
-    let before = std::fs::read(store.path()).expect("original settings");
     cx.update(|cx| {
         init(cx);
         crate::application::init(cx);
     });
     let mut page = None;
     let window = cx.open_window(size(px(760.), px(680.)), |window, cx| {
-        let view = cx.new(|cx| Agents::new(store.clone(), window, cx));
+        let view = cx.new(|cx| Agents::new(window, cx));
+        view.update(cx, |page, cx| {
+            configure(
+                page,
+                vec![AgentSpec::embedded().into(), spec.clone().into()],
+                cx,
+            )
+        });
         page = Some(view.clone());
         gpui_kit::component::Root::new(view, window, cx)
     });
     let page = page.expect("page");
     cx.update_window(window.into(), |_, window, cx| {
         page.update(cx, |page, cx| {
-            page.configuration_task =
-                Some(cx.spawn(async |_, _| std::future::pending::<()>().await));
-        });
-        click(window, "agents-remove-custom", cx);
-        assert_eq!(
-            cx.windows().len(),
-            1,
-            "busy removal does not open confirmation"
-        );
-        assert_eq!(std::fs::read(store.path()).expect("settings"), before);
-        page.update(cx, |page, cx| {
-            page.configuration_task.take();
             page.edit(spec.clone(), Some(spec.id.clone()), window, cx);
             page.form.program.update(cx, |input, cx| {
                 input.set_value("/fixture/changed", window, cx)
@@ -53,19 +74,63 @@ fn configuration_requests_disable_conflicting_editor_actions(cx: &mut TestAppCon
         });
         click(window, "agents-save", cx);
         click(window, "agents-cancel", cx);
-        assert!(
-            page.read(cx).dirty(cx),
-            "pending save cannot discard the draft"
-        );
-        assert_eq!(std::fs::read(store.path()).expect("settings"), before);
+        assert!(page.read(cx).dirty(cx), "in-flight requests retain drafts");
         page.update(cx, |page, _| {
             page.configuration_task.take();
         });
         click(window, "agents-save", cx);
-        assert!(!page.read(cx).dirty(cx));
-        assert_ne!(std::fs::read(store.path()).expect("saved settings"), before);
+        assert!(
+            page.read(cx).dirty(cx),
+            "offline save never falls back to local persistence"
+        );
+        assert_eq!(std::fs::read(&backend).expect("server document"), before);
     })
-    .expect("configuration controls");
+    .expect("configuration guards");
+}
+
+#[gpui_kit::test]
+fn remote_registration_drafts_preserve_environment_and_reject_replaced_ownership(
+    cx: &mut TestAppContext,
+) {
+    cx.update(init);
+    let mut spec = AgentSpec::acp("custom", Command::new("/fixture/agent", []));
+    spec.env.insert("KEEP".into(), "original".into());
+    cx.open_window(size(px(760.), px(680.)), |window, cx| {
+        let page = cx.new(|cx| Agents::new(window, cx));
+        page.update(cx, |page, cx| {
+            configure(
+                page,
+                vec![AgentSpec::embedded().into(), spec.clone().into()],
+                cx,
+            );
+            page.edit(spec.clone(), Some(spec.id.clone()), window, cx);
+            page.form
+                .program
+                .update(cx, |input, cx| input.set_value("/fixture/new", window, cx));
+            let candidate = page.candidate(cx).expect("edited registration");
+            assert_eq!(
+                candidate[1].as_custom().expect("custom").env["KEEP"],
+                "original"
+            );
+            assert!(!page.can_remove(&AgentSpec::embedded().into(), cx));
+            configure(
+                page,
+                vec![AgentRegistration::Managed(bas::config::ManagedAgent {
+                    id: spec.id.clone(),
+                    installation: bas::config::InstallationRef {
+                        path: "/remote/bas-installation.json".into(),
+                        sha256: "0".repeat(64),
+                    },
+                })],
+                cx,
+            );
+            assert!(
+                page.candidate(cx).is_err(),
+                "a stale custom edit cannot replace a managed registration"
+            );
+        });
+        gpui_kit::component::Root::new(page, window, cx)
+    });
 }
 
 #[gpui_kit::test]
@@ -160,160 +225,4 @@ fn click(window: &mut Window, id: &'static str, cx: &mut App) {
         );
     }
     panic!("control {id} was not reachable by scrolling the settings viewport");
-}
-
-fn fill(window: &mut Window, id: &'static str, value: &str, cx: &mut App) {
-    click(window, id, cx);
-    window.press("ctrl-a", cx);
-    if value.is_empty() {
-        window.press("backspace", cx);
-    } else {
-        window.input(value, cx);
-    }
-}
-
-#[gpui_kit::test]
-fn invalid_and_conflicting_edits_never_overwrite_disk(cx: &mut TestAppContext) {
-    let directory = tempfile::tempdir().expect("temporary settings directory");
-    let path = directory.path().join("settings.json");
-    let store = Store::at(path.clone());
-    let mut document = store.load().expect("default settings for missing fixture");
-    let mut spec = AgentSpec::acp("codex", Command::new("/test/codex-acp", []));
-    spec.env.insert("KEEP".into(), "original".into());
-    store
-        .save_agents(
-            &mut document,
-            vec![AgentSpec::embedded().into(), spec.into()],
-        )
-        .expect("write initial agent catalog");
-    cx.update(init);
-    let mut view = None;
-    let window = cx.open_window(size(px(760.), px(680.)), |window, cx| {
-        let page = cx.new(|cx| Agents::new(Store::at(path.clone()), window, cx));
-        view = Some(page.clone());
-        Root::new(page, window, cx)
-    });
-    let view = view.expect("created Agents view");
-    let before = std::fs::read(&path).expect("read initial catalog bytes");
-    let installation = cx.update(|cx| window::open(view.clone(), cx).expect("installation window"));
-    cx.update_window(installation.into(), |_, window, cx| {
-        click(window, "agents-add-custom", cx);
-        click(window, "agents-save", cx);
-        assert_eq!(
-            std::fs::read(&path).expect("read rejected-save bytes"),
-            before
-        );
-        assert!(view.read(cx).dirty(cx));
-        click(window, "agents-cancel", cx);
-    })
-    .expect("reject invalid draft in installation window");
-    cx.update_window(window.into(), |_, window, cx| {
-        click(window, "agents-edit-0", cx);
-        click(window, "agents-args", cx);
-        window.press("ctrl-a", cx);
-        window.input("[\"edited argument\"]", cx);
-        click(window, "agents-save", cx);
-    })
-    .expect("reject invalid draft then edit existing agent through UI");
-    assert_eq!(
-        store.load().expect("load edited agent").settings.agents[1]
-            .as_custom()
-            .expect("custom registration")
-            .env["KEEP"],
-        "original"
-    );
-    cx.update_window(installation.into(), |_, window, cx| {
-        click(window, "agents-add-custom", cx);
-        fill(window, "agents-id", "other", cx);
-        fill(window, "agents-program", "/test/other", cx);
-        let mut external = store.load().expect("load independent external document");
-        store
-            .save_agents(&mut external, vec![AgentSpec::embedded().into()])
-            .expect("persist external catalog modification");
-        let external_bytes = std::fs::read(&path).expect("read external catalog bytes");
-        click(window, "agents-save", cx);
-        assert!(view.read(cx).dirty(cx));
-        assert_eq!(
-            std::fs::read(&path).expect("read after conflicting save"),
-            external_bytes
-        );
-    })
-    .expect("preserve conflicting installation draft");
-    let external_bytes = std::fs::read(&path).expect("external catalog");
-    cx.update_window(window.into(), |_, window, cx| {
-        click(window, "agents-reload", cx);
-        assert!(view.read(cx).dirty(cx));
-    })
-    .expect("reload does not discard installation draft");
-    cx.update_window(installation.into(), |_, window, cx| {
-        click(window, "agents-cancel", cx);
-    })
-    .expect("cancel installation draft");
-    cx.update_window(window.into(), |_, window, cx| {
-        click(window, "agents-reload", cx);
-        window.render_frame(cx);
-        assert!(window.try_find("agents-edit-0").is_none());
-        assert!(window.try_find("agents-remove-embedded").is_none());
-        assert_eq!(
-            std::fs::read(&path).expect("embedded is read-only"),
-            external_bytes
-        );
-    })
-    .expect("preserve conflict draft and keep embedded read-only");
-}
-
-#[gpui_kit::test]
-fn stale_custom_save_cannot_replace_a_new_managed_registration(cx: &mut TestAppContext) {
-    let directory = tempfile::tempdir().expect("settings");
-    let path = directory.path().join("settings.json");
-    let store = Store::at(path.clone());
-    let spec = AgentSpec::acp("same-id", Command::new("/custom/acp", []));
-    let managed = managed_fixture(directory.path(), &spec);
-    let mut document = store.load().expect("document");
-    store
-        .save_agents(&mut document, vec![spec.clone().into()])
-        .expect("custom");
-    cx.update(gpui_kit::init);
-    let mut view = None;
-    let window = cx.open_window(size(px(960.), px(900.)), |window, cx| {
-        let page = cx.new(|cx| Agents::new(store.clone(), window, cx));
-        view = Some(page.clone());
-        Root::new(page, window, cx)
-    });
-    let view = view.expect("page");
-    cx.update_window(window.into(), |_, window, cx| {
-        view.update(cx, |page, cx| {
-            page.edit(spec.clone(), Some(spec.id.clone()), window, cx)
-        });
-        fill(window, "agents-program", "/custom/changed", cx);
-        let mut external = store.load().expect("external document");
-        store
-            .save_agents(&mut external, vec![managed.clone()])
-            .expect("managed replaces custom externally");
-        click(window, "agents-save", cx);
-        assert!(view.read(cx).dirty(cx));
-        assert_eq!(
-            store.load().expect("still managed").settings.agents,
-            vec![managed.clone()]
-        );
-        click(window, "agents-cancel", cx);
-        std::fs::remove_file(directory.path().join(bas::config::INSTALLATION_FILE))
-            .expect("descriptor disappears");
-        view.update(cx, |page, cx| page.reload(cx));
-        window.render_frame(cx);
-        assert!(window.find("agents-registration-errors").visible());
-        assert!(
-            view.read(cx).catalog().is_empty(),
-            "no fallback custom agent"
-        );
-        assert_eq!(
-            store
-                .load()
-                .expect("retained unresolved reference")
-                .settings
-                .agents,
-            vec![managed.clone()]
-        );
-    })
-    .expect("stale ownership and descriptor errors");
 }

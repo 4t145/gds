@@ -1,6 +1,112 @@
 use super::*;
 
 #[gpui_kit::test]
+fn nested_management_pages_return_one_level_without_replacing_the_workspace(
+    cx: &mut TestAppContext,
+) {
+    let mut fixture = fixture(cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.composer.input.update(cx, |input, cx| {
+                input.set_value("keep this draft", window, cx)
+            });
+            view.open_settings(window, cx);
+        });
+    })
+    .expect("open settings");
+    cx.run_until_parked();
+    let about = cx.update(|cx| crate::application::open_about(cx).expect("embedded about"));
+    assert_eq!(about, fixture.window);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("about-version").visible());
+        assert!(window.try_find("about-close").is_none());
+        window.click("page-return", cx);
+        window.render_frame(cx);
+        assert!(window.find("settings").visible());
+    })
+    .expect("about returns to settings");
+    let catalog =
+        cx.update(|cx| crate::settings::window::open_catalog(cx).expect("embedded catalog"));
+    assert_eq!(catalog, fixture.window);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("agent-installation-page").visible());
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert!(window.find("settings").visible());
+        window.click("settings-return", cx);
+    })
+    .expect("catalog returns through settings");
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert_eq!(cx.windows().len(), 1);
+        let view = fixture.view.read(cx);
+        assert!(view.window.presented);
+        assert_eq!(view.composer.input.read(cx).value(), "keep this draft");
+    });
+    assert!(fixture.commands.try_recv().is_err());
+}
+
+#[gpui_kit::test]
+fn window_style_switch_is_top_right_and_management_returns_to_compact_mode(
+    cx: &mut TestAppContext,
+) {
+    let fixture = fixture(cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let control = window.find("toggle-mode").bounds().center();
+        assert!(control.x > window.viewport_size().width / 2.);
+        assert!(control.y < window.viewport_size().height / 2.);
+        window.click("toggle-mode", cx);
+        assert!(fixture.view.read(cx).window.compact);
+        fixture.view.update(cx, |view, cx| {
+            view.composer
+                .input
+                .update(cx, |input, cx| input.set_value("compact draft", window, cx));
+            view.open_agent_catalog(window, cx);
+        });
+    })
+    .expect("compact mode and catalog");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("agent-installation-page").visible());
+        window.click("page-return", cx);
+    })
+    .expect("return to compact workspace");
+    cx.run_until_parked();
+    cx.update(|cx| {
+        assert_eq!(cx.windows().len(), 1);
+        let view = fixture.view.read(cx);
+        assert!(view.window.presented && view.window.compact);
+        assert_eq!(view.composer.input.read(cx).value(), "compact draft");
+    });
+}
+
+#[gpui_kit::test]
+fn closing_the_window_from_settings_closes_its_host(cx: &mut TestAppContext) {
+    let fixture = fixture(cx);
+    let settings = fixture
+        .window
+        .update(cx, |root, window, cx| {
+            let host = crate::diagnostics::content(root, cx)
+                .downcast::<crate::connections::WorkspaceHost>()
+                .expect("workspace host");
+            host.update(cx, |host, cx| host.show_settings(window, cx))
+        })
+        .expect("open settings");
+    cx.run_until_parked();
+    // TestPlatform uses server decorations, so it deliberately has no custom
+    // close button. Exercise the event emitted by that button on client windows.
+    cx.update(|cx| {
+        settings.update(cx, |_, cx| cx.emit(crate::settings::Event::CloseWindow));
+    });
+    cx.run_until_parked();
+    cx.update(|cx| assert!(cx.windows().is_empty()));
+}
+
+#[gpui_kit::test]
 fn settings_return_to_the_same_workspace_and_keep_the_unsent_draft(cx: &mut TestAppContext) {
     let mut fixture = fixture(cx);
     cx.update_window(fixture.window.into(), |_, window, cx| {

@@ -16,11 +16,8 @@ use thiserror::Error;
 pub const MIN_SIZE: f32 = 12.0;
 /// Largest user-selectable base text size, in pixels.
 pub const MAX_SIZE: f32 = 24.0;
-/// Kit's default base text size.
-///
-/// The default preference must keep the existing visuals, and explicit pixel
-/// sizes are scaled relative to this value.
-pub const DEFAULT_SIZE: f32 = 16.0;
+/// GDS's rem base; ordinary controls use the shared 0.875rem text scale.
+pub const DEFAULT_SIZE: f32 = crate::design::FONT_SIZE;
 /// GPUI's virtual family for the platform default UI font.
 const SYSTEM_FAMILY: &str = ".SystemUIFont";
 

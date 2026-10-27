@@ -5,13 +5,11 @@
 //! existing preferences survive the move without keeping two writable sources.
 
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
 };
 
 use directories::BaseDirs;
-use tempfile::NamedTempFile;
 
 use super::Preferences;
 
@@ -39,34 +37,8 @@ pub enum Error {
     },
     #[error("could not serialize preferences: {0}")]
     Serialize(#[from] toml::ser::Error),
-    #[error("configuration is a symbolic link and must be managed outside the application: {path}")]
-    SymbolicLink { path: PathBuf },
-    #[error("configuration is read-only: {path}")]
-    ReadOnly { path: PathBuf },
-    #[error("could not create configuration directory {path}: {source}")]
-    CreateDirectory {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("could not create a temporary configuration in {path}: {source}")]
-    TemporaryFile {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("could not write configuration {path}: {source}")]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("could not replace configuration {path}: {source}")]
-    Persist {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
+    #[error(transparent)]
+    Persistence(#[from] gds::configuration::Error),
 }
 
 /// Preferences loaded for application start.
@@ -227,47 +199,10 @@ fn save_to(path: &Path, preferences: &Preferences) -> Result<(), Error> {
 /// # Errors
 /// Returns serialization, destination protection, or filesystem write errors.
 fn write_atomic(path: &Path, preferences: &Preferences, replace: bool) -> Result<(), Error> {
-    let existing = writable_destination(path)?;
+    let file = gds::configuration::File::new(path.to_owned());
+    let expected = if replace { file.read()? } else { None };
     let contents = toml::to_string_pretty(preferences)?;
-    let parent = path
-        .parent()
-        .expect("configuration path has a parent directory");
-    fs::create_dir_all(parent).map_err(|source| Error::CreateDirectory {
-        path: parent.to_owned(),
-        source,
-    })?;
-    let mut temporary = NamedTempFile::new_in(parent).map_err(|source| Error::TemporaryFile {
-        path: parent.to_owned(),
-        source,
-    })?;
-    if let Some(existing) = &existing {
-        temporary
-            .as_file()
-            .set_permissions(existing.permissions())
-            .map_err(|source| Error::Write {
-                path: path.to_owned(),
-                source,
-            })?;
-    }
-    temporary
-        .write_all(contents.as_bytes())
-        .and_then(|()| temporary.as_file().sync_all())
-        .map_err(|source| Error::Write {
-            path: path.to_owned(),
-            source,
-        })?;
-
-    // A desktop configuration manager may have changed ownership while writing.
-    writable_destination(path)?;
-    let result = if replace && existing.is_some() {
-        temporary.persist(path)
-    } else {
-        temporary.persist_noclobber(path)
-    };
-    result.map_err(|error| Error::Persist {
-        path: path.to_owned(),
-        source: error.error,
-    })?;
+    file.write(expected.as_deref(), contents.as_bytes())?;
     Ok(())
 }
 
@@ -282,25 +217,6 @@ fn metadata(path: &Path) -> Result<Option<fs::Metadata>, Error> {
             source,
         }),
     }
-}
-
-/// # Errors
-/// Returns an error for a symlink/read-only configuration or failed inspection.
-fn writable_destination(path: &Path) -> Result<Option<fs::Metadata>, Error> {
-    let existing = metadata(path)?;
-    if let Some(metadata) = &existing {
-        if metadata.file_type().is_symlink() {
-            return Err(Error::SymbolicLink {
-                path: path.to_owned(),
-            });
-        }
-        if metadata.permissions().readonly() {
-            return Err(Error::ReadOnly {
-                path: path.to_owned(),
-            });
-        }
-    }
-    Ok(existing)
 }
 
 #[cfg(test)]

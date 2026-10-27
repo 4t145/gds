@@ -22,7 +22,6 @@ pub(super) struct Registry {
 }
 
 enum Access {
-    Standalone,
     AwaitingProfile,
     Editable,
     OtherProfile,
@@ -45,14 +44,14 @@ impl Registry {
             access: if has_service {
                 Access::AwaitingProfile
             } else {
-                Access::Standalone
+                Access::Unavailable
             },
             load: Load::Idle,
         }
     }
 
     pub(super) fn editable(&self) -> bool {
-        matches!(self.access, Access::Standalone | Access::Editable)
+        matches!(self.access, Access::Editable)
     }
 
     fn loading(&self) -> bool {
@@ -259,17 +258,6 @@ impl Agents {
                     if let Ok(operation) = update
                         && operation.complete
                     {
-                        if !page.dirty(cx) && page.catalog_service.is_none() {
-                            match page.store.load() {
-                                Ok(document) => page.accept_document(document),
-                                Err(error) => {
-                                    page.message = crate::i18n::tr!(
-                                        "settings-load-error",
-                                        error = error.to_string()
-                                    )
-                                }
-                            }
-                        }
                         page.notify_agent_change(None, cx);
                         if let Some(spec) = operation.spec {
                             page.saved = Some(spec.clone());
@@ -492,11 +480,6 @@ impl Agents {
                     items_center;
                     gap_3;
                 } [
-                    .div {
-                        text_size: $(crate::ui::TITLE);
-                    } [
-                        $(crate::i18n::tr!("catalog-title")),
-                    ],
                     ("agents-registry-learn-more").Button::new {
                         ghost;
                         xsmall;

@@ -107,6 +107,7 @@ impl BackendState {
 /// Sidebar selection, directory drafts, and persisted navigation preferences.
 pub(super) struct NavigationState {
     pub(super) search: Entity<InputState>,
+    pub(super) search_expanded: bool,
     pub(super) directories: Vec<PathBuf>,
     pub(super) selected_directory: Option<PathBuf>,
     pub(super) collapsed: HashSet<Option<PathBuf>>,
@@ -119,7 +120,6 @@ pub(super) struct NavigationState {
     pub(super) restore: RestoreState,
     pub(super) drafts: DirectoryDrafts,
     pub(super) picker: FolderPicker,
-    pub(super) _clock: Option<Task<()>>,
 }
 
 impl NavigationState {
@@ -127,6 +127,7 @@ impl NavigationState {
         let directory = navigation::groups::normalize(&cwd);
         Self {
             search,
+            search_expanded: false,
             directories: vec![directory.clone()],
             selected_directory: Some(directory),
             collapsed: HashSet::new(),
@@ -139,7 +140,6 @@ impl NavigationState {
             restore: RestoreState::default(),
             drafts: DirectoryDrafts::default(),
             picker: FolderPicker::default(),
-            _clock: None,
         }
     }
 

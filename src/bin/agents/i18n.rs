@@ -1,7 +1,7 @@
 //! Embedded Fluent catalogs. Static labels borrow cached text; messages with
 //! arguments are formatted by Fluent, including its plural and bidi handling.
 
-pub(crate) use bas::config::appearance::Language;
+pub(crate) use crate::configuration::appearance::Language;
 use fluent_bundle::FluentArgs;
 use gds::i18n::Catalog;
 use std::sync::{
@@ -21,9 +21,9 @@ static EN: LazyLock<Catalog> = LazyLock::new(|| {
 
 pub(crate) fn install(language: Language, cx: &mut gpui_kit::App) {
     set_language(language);
-    let (language, source) = match language {
-        Language::Chinese => (gds::i18n::Language::Chinese, CHINESE),
-        Language::English => (gds::i18n::Language::English, ENGLISH),
+    let source = match language {
+        Language::Chinese => CHINESE,
+        Language::English => ENGLISH,
     };
     gds::i18n::install_resources(language, &[source], cx).expect("embedded Agents Fluent catalog");
 }

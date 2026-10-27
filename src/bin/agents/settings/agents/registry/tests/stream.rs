@@ -17,11 +17,13 @@ use tokio_util::task::AbortOnDropHandle;
 use tonic::{Request, Response, Status as RpcStatus, transport::Server};
 
 use super::*;
+mod store;
+use store::Store as FixtureStore;
 
 type ProgressStream = Pin<Box<dyn Stream<Item = Result<pb::AgentOperation, RpcStatus>> + Send>>;
 
 struct FixtureService {
-    store: bas::config::Store,
+    store: FixtureStore,
     catalog: Arc<Mutex<Catalog>>,
     stream: Mutex<Option<mpsc::UnboundedReceiver<Result<pb::AgentOperation, RpcStatus>>>>,
     started: Arc<AtomicBool>,
@@ -64,8 +66,8 @@ macro_rules! fixture_service {
                     probes.policy_read_release.take()
                 };
                 if let Some(release) = release { release.notified().await; }
-                let document = bas::config::DaemonStore::at(self.store.path().to_owned())
-                    .load().expect("fixture settings").settings;
+                let document = FixtureStore::at(self.store.path().to_owned())
+                    .load().expect("fixture settings").settings.daemon;
                 Ok(Response::new(pb::AcpConfiguration {
                     profile: "fixture-daemon".into(),
                     revision: serde_json::to_string(&document).expect("revision"),
@@ -83,7 +85,7 @@ macro_rules! fixture_service {
                 if request.profile != baseline.profile || request.revision != baseline.revision {
                     return Err(RpcStatus::aborted("policy changed"));
                 }
-                let store = bas::config::DaemonStore::at(self.store.path().to_owned());
+                let store = FixtureStore::at(self.store.path().to_owned());
                 let mut document = store.load().expect("fixture document");
                 let policy = serde_json::from_slice(&request.policy_json).expect("valid policy");
                 store.save_acp(&mut document, policy).map_err(|e| RpcStatus::invalid_argument(e.to_string()))?;
@@ -303,7 +305,7 @@ struct Fixture {
     started: Arc<AtomicBool>,
     catalog: Arc<Mutex<Catalog>>,
     probes: Arc<Mutex<Probes>>,
-    store: bas::config::Store,
+    store: FixtureStore,
     _server_task: AbortOnDropHandle<()>,
     _endpoint_directory: tempfile::TempDir,
 }
@@ -359,7 +361,7 @@ impl Fixture {
         let started = Arc::new(AtomicBool::new(false));
         let probes = Arc::new(Mutex::new(Probes::default()));
         let service = FixtureService {
-            store: bas::config::Store::at(path.clone()),
+            store: FixtureStore::at(path.clone()),
             catalog: catalog.clone(),
             stream: Mutex::new(Some(stream)),
             started: started.clone(),
@@ -379,7 +381,7 @@ impl Fixture {
             started,
             catalog,
             probes,
-            store: bas::config::Store::at(path),
+            store: FixtureStore::at(path),
             _server_task: server_task,
             _endpoint_directory: endpoint_directory,
         }
@@ -396,13 +398,7 @@ impl Fixture {
         });
         let mut page = None;
         let window = cx.open_window(size(px(960.), px(720.)), |window, cx| {
-            let view = cx.new(|cx| {
-                Agents::new(
-                    bas::config::DaemonStore::at(self.store.path().to_owned()),
-                    window,
-                    cx,
-                )
-            });
+            let view = cx.new(|cx| Agents::new(window, cx));
             view.update(cx, |page, cx| {
                 let agents = self
                     .store
@@ -487,7 +483,7 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
 ) {
     let directory = tempfile::tempdir().expect("policy fixture");
     let fixture = Fixture::with_transport(directory.path().join("server.json"), true);
-    let store = bas::config::DaemonStore::at(fixture.store.path().to_owned());
+    let store = FixtureStore::at(fixture.store.path().to_owned());
     let mut document = store.load().expect("server configuration");
     store
         .save_agents(
@@ -579,7 +575,7 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
         fixture.probes.lock().expect("probes").policy_writes.len(),
         1
     );
-    let policy = store.load().expect("remote file").settings.acp;
+    let policy = store.load().expect("remote file").settings.daemon.acp;
     assert_eq!(policy.idle_timeout_secs.expect("timeout").get(), 120);
     assert_eq!(policy.pool_size, 0);
     fixture.probes.lock().expect("probes").policy_error =
@@ -594,7 +590,10 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
     cx.run_until_parked();
     cx.executor().advance_clock(crate::settings::SAVE_DELAY);
     fixture.pump_until(cx, |cx| page.read(cx).status(cx).contains("policy changed"));
-    assert_eq!(store.load().expect("no overwrite").settings.acp, policy);
+    assert_eq!(
+        store.load().expect("no overwrite").settings.daemon.acp,
+        policy
+    );
     cx.executor().advance_clock(Duration::from_secs(2));
     cx.run_until_parked();
     assert_eq!(
@@ -620,7 +619,16 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
     fixture.pump_until(cx, |cx| {
         page.read(cx).status(cx) == crate::i18n::tr!("settings-applied")
     });
-    assert_eq!(store.load().expect("saved draft").settings.acp.pool_size, 2);
+    assert_eq!(
+        store
+            .load()
+            .expect("saved draft")
+            .settings
+            .daemon
+            .acp
+            .pool_size,
+        2
+    );
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(window.try_find("acp-policy-pool-pool-agent").is_none());
@@ -637,6 +645,7 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
                 .load()
                 .expect("added pool")
                 .settings
+                .daemon
                 .acp
                 .pools
                 .get(&"pool-agent".into())
@@ -656,6 +665,7 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
                 .load()
                 .expect("removed pool")
                 .settings
+                .daemon
                 .acp
                 .pools
                 .is_empty()
@@ -665,6 +675,7 @@ fn policy_page_autosaves_to_remote_and_preserves_draft_when_server_rejects(
             .load()
             .expect("automatic policy unchanged")
             .settings
+            .daemon
             .acp
             .pool_size,
         2
@@ -677,7 +688,7 @@ fn policy_autosave_keeps_newer_edits_and_flushes_to_original_server_after_close(
 ) {
     let directory = tempfile::tempdir().expect("policy fixture");
     let fixture = Fixture::with_transport(directory.path().join("server.json"), true);
-    let store = bas::config::DaemonStore::at(fixture.store.path().to_owned());
+    let store = FixtureStore::at(fixture.store.path().to_owned());
     cx.update(super::super::super::tests::init);
     cx.update(|cx| {
         crate::agents::init(
@@ -710,7 +721,7 @@ fn policy_autosave_keeps_newer_edits_and_flushes_to_original_server_after_close(
     cx.run_until_parked();
     cx.executor().advance_clock(crate::settings::SAVE_DELAY);
     fixture.pump_until(cx, |_| {
-        store.load().expect("stored").settings.acp.pool_size == 2
+        store.load().expect("stored").settings.daemon.acp.pool_size == 2
     });
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -744,6 +755,7 @@ fn policy_autosave_keeps_newer_edits_and_flushes_to_original_server_after_close(
             .load()
             .expect("saved after close")
             .settings
+            .daemon
             .acp
             .pool_size
             == 3
@@ -832,13 +844,7 @@ fn fetched_registrations_survive_remote_catalog_failure(cx: &mut TestAppContext)
     let mut page = None;
     let window = cx.open_window(size(px(960.), px(720.)), |window, cx| {
         // This store is deliberately unrelated to the daemon's settings.
-        let view = cx.new(|cx| {
-            Agents::new(
-                bas::config::DaemonStore::at(directory.path().join("client.json")),
-                window,
-                cx,
-            )
-        });
+        let view = cx.new(|cx| Agents::new(window, cx));
         page = Some(view.clone());
         Root::new(view, window, cx)
     });

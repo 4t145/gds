@@ -359,7 +359,7 @@ impl Browser {
         let settings_view =
             cx.new(|cx| settings::View::new(preferences.clone(), ui::SIDEBAR_WIDTH, window, cx));
         let theme_reload =
-            cx.new(|cx| gds::theme::HotReload::new(preferences.appearance.clone(), window, cx));
+            gds::theme::HotReload::shared(preferences.appearance.clone(), window, cx);
         let file_table = table::FileTable::make_state(cx.entity().downgrade(), window, cx);
         let volume_table =
             devices::table::VolumeTable::make_state(cx.entity().downgrade(), window, cx);

@@ -102,7 +102,7 @@ fn reconnect_keeps_existing_messages_and_draft_visible(cx: &mut TestAppContext) 
         crate::connections::shared(cx).update(cx, |profiles, cx| {
             profiles
                 .put(
-                    bas::config::ConnectionProfile {
+                    crate::configuration::ConnectionProfile {
                         id: "reconnecting".into(),
                         name: "Slow server".into(),
                         target: server.target,

@@ -5,23 +5,23 @@ use crate::actions::Cancel;
 use gpui_kit::{KeyDownEvent, prelude::*};
 
 pub fn is_focused(window: &Window, cx: &App) -> bool {
-    overlay(cx).is_some_and(|view| view.read(cx).focus.contains_focused(window, cx))
+    overlay_for(window, cx).is_some_and(|view| view.read(cx).focus.contains_focused(window, cx))
 }
 
 pub fn focus(window: &mut Window, cx: &mut App) {
-    if let Some(view) = overlay(cx) {
+    if let Some(view) = overlay_for(window, cx) {
         view.update(cx, |view, cx| view.focus_current(window, cx));
     }
 }
 
 pub fn close_current(window: &mut Window, cx: &mut App) {
-    if let Some(view) = overlay(cx) {
+    if let Some(view) = overlay_for(window, cx) {
         view.update(cx, |view, cx| view.close_current(window, cx));
     }
 }
 
 pub fn close_all(window: &mut Window, cx: &mut App) {
-    if let Some(view) = overlay(cx) {
+    if let Some(view) = overlay_for(window, cx) {
         view.update(cx, |view, cx| view.close_all(window, cx));
     }
 }

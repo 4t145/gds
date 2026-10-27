@@ -7,7 +7,7 @@ let
 in
 pkgs.mkShell {
   packages = with pkgs; [
-    cargo rustc rustfmt clippy just pkg-config clang lld cmake
+    cargo rustc rustfmt clippy just pkg-config clang lld cmake python3
   ];
   buildInputs = libraries;
   LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";

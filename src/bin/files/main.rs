@@ -196,15 +196,13 @@ fn launch(arguments: picker::Arguments) -> anyhow::Result<()> {
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
-                titlebar: None,
-                window_background: WindowBackgroundAppearance::Transparent,
                 app_id: Some(if picking { PICKER_APP_ID } else { APP_ID }.to_owned()),
                 kind: if picking {
                     WindowKind::Dialog
                 } else {
                     WindowKind::Normal
                 },
-                ..Default::default()
+                ..gds::ui::window::window_options()
             };
             if let Err(error) = gpui_kit::open_window(options, cx, move |window, cx| {
                 window.set_window_title(i18n::text("app-title", cx).as_ref());

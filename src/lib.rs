@@ -1,6 +1,8 @@
 //! Shared foundation for the GDS desktop applications.
 
 pub mod actions;
+pub mod configuration;
+pub mod design;
 pub mod desktop;
 pub mod i18n;
 pub mod notifications;

@@ -67,7 +67,7 @@ fn save_io_failure_preserves_document() {
             .is_err()
     );
     assert_eq!(document.preferences, Preferences::default());
-    assert!(document.settings.source_paths().is_empty());
+    assert!(path.is_dir());
 }
 
 #[cfg(unix)]
@@ -87,7 +87,9 @@ fn save_rejects_symlinks_without_modifying_target() {
         .err()
         .expect("reject link");
     assert!(
-        error.downcast_ref::<bas::config::Error>().is_some(),
+        error
+            .downcast_ref::<crate::configuration::Error>()
+            .is_some(),
         "shared settings store reports the refused write"
     );
     assert!(path.is_symlink());

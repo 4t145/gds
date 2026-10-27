@@ -60,7 +60,11 @@ impl Workspace {
         self.record_settings_target(cx);
         if cx.try_global::<crate::agents::check::Service>().is_none() {
             let owner = cx.entity().downgrade();
+            let parent = self.window.handle;
             cx.defer(move |cx| {
+                if !crate::connections::target_page(parent, cx) {
+                    return;
+                }
                 if let Err(error) = crate::settings::window::open_agent(&agent, cx) {
                     let _ = owner.update(cx, |this, cx| {
                         this.selected.error = Some(crate::i18n::tr!(

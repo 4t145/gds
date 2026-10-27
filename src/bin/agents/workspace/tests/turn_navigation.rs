@@ -182,7 +182,7 @@ fn whole_overview_appears_without_backfilling_and_ctrl_click_only_bookmarks(
             .expect("hover/accessibility hint")
             .to_owned();
         assert!(hint.contains("Ctrl") && hint.contains("Alt"));
-        assert!(hint.contains(&crate::i18n::tr!("time-minutes", count = 5)));
+        assert!(hint.contains(gds::i18n::count("time-minutes-ago", 5, cx).as_ref()));
         assert!(!hint.contains("UTC"));
         window.hover("turn-marker-1", cx);
         window.render_frame(cx);
@@ -210,7 +210,7 @@ fn whole_overview_appears_without_backfilling_and_ctrl_click_only_bookmarks(
                 < window.find("turn-marker-metadata").bounds().size.width,
             "bookmark is a compact icon badge, not a full-width strip"
         );
-        let relative_time = crate::i18n::tr!("time-minutes", count = 5);
+        let relative_time = gds::i18n::count("time-minutes-ago", 5, cx).to_string();
         assert_eq!(
             window.find("turn-marker-time").label(),
             Some(relative_time.as_str())

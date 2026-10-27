@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use bas::config::ConnectionProfile;
+use crate::configuration::ConnectionProfile;
 use gpui_kit::{
     App, Context, Entity, FocusHandle, KeyBinding, ScrollHandle, Subscription, Window, actions,
     component::input::*, prelude::*,

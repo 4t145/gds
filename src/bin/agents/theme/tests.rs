@@ -46,7 +46,9 @@ fn application_watcher_survives_window_closure_and_updates_all_views(cx: &mut Te
         r#"{"appearance":{"theme_source":"builtin","ui_font_size":22}}"#,
     )
     .expect("external update");
-    cx.executor().advance_clock(REFRESH_INTERVAL);
+    cx.update(|cx| {
+        gds::theme::Observer::shared(cx).update(cx, |observer, cx| observer.refresh(cx));
+    });
     cx.executor().run_until_parked();
     for handle in [first, second] {
         cx.update_window(handle.into(), |_, window, cx| window.render_frame(cx))
@@ -61,13 +63,17 @@ fn application_watcher_survives_window_closure_and_updates_all_views(cx: &mut Te
         r#"{"appearance":{"theme_source":"builtin","ui_font_size":24}}"#,
     )
     .expect("update with only settings left");
-    cx.executor().advance_clock(REFRESH_INTERVAL);
+    cx.update(|cx| {
+        gds::theme::Observer::shared(cx).update(cx, |observer, cx| observer.refresh(cx));
+    });
     cx.executor().run_until_parked();
     cx.update_window(second.into(), |_, window, cx| window.render_frame(cx))
         .expect("remaining window still receives changes");
     assert_eq!(second_size.get(), 24.);
     std::fs::write(&path, r#"{"appearance":{"ui_font_size":0}}"#).expect("invalid external update");
-    cx.executor().advance_clock(REFRESH_INTERVAL);
+    cx.update(|cx| {
+        gds::theme::Observer::shared(cx).update(cx, |observer, cx| observer.refresh(cx));
+    });
     cx.executor().run_until_parked();
     cx.update(|cx| assert_eq!(Theme::global(cx).font_size, px(24.)));
 }

@@ -71,7 +71,7 @@ fn selections_are_editable_references_and_only_save_persists(cx: &mut TestAppCon
         });
     })
     .expect("save");
-    let saved = bas::config::Store::at(settings)
+    let saved = crate::configuration::Store::at(settings)
         .load()
         .expect("saved")
         .settings

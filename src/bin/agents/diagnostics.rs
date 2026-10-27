@@ -1,7 +1,7 @@
 //! User notices and the current process's frontend diagnostic log.
 
 pub(crate) mod log;
-mod surface;
+use gds::notifications::surface;
 pub(crate) mod window;
 
 #[cfg(all(test, feature = "gui-tests"))]

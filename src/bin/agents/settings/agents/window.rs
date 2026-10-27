@@ -1,4 +1,4 @@
-//! Installation is a native surface, not a settings section.
+//! Agent installation content; a standalone host also supports isolated previews.
 use super::{Agents, Editor, Page};
 use crate::{theme, ui::window_controls::TitleBar};
 use gpui_kit::{
@@ -38,6 +38,12 @@ pub(in crate::settings) fn open(
 /// # Errors
 /// Returns a platform error when native window creation fails.
 fn open_inner(agents: Option<Entity<Agents>>, cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
+    if let Some((handle, host)) = crate::connections::page_host(cx) {
+        handle.update(cx, |_, window, cx| {
+            host.update(cx, |host, cx| host.show_catalog(agents, window, cx))
+        })?;
+        return Ok(handle);
+    }
     let target = agents.as_ref().map_or_else(
         || super::selected_target(cx),
         |agents| agents.read(cx).target(),
@@ -115,6 +121,37 @@ struct Host {
     agents: Entity<Agents>,
     focus: FocusHandle,
     _observation: Subscription,
+}
+
+pub(crate) struct Content {
+    agents: Entity<Agents>,
+    _observation: Subscription,
+}
+
+pub(crate) fn content(
+    agents: Option<Entity<Agents>>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Content> {
+    let agents = agents.unwrap_or_else(|| super::shared(window, cx));
+    cx.new(|cx| Content {
+        _observation: cx.observe(&agents, |_, _, cx| cx.notify()),
+        agents,
+    })
+}
+
+impl Content {
+    pub(crate) fn prepare_to_leave(&self, cx: &mut App) {
+        self.agents.update(cx, cancel_draft);
+    }
+}
+
+impl Render for Content {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.agents.update(cx, |agents, cx| {
+            agents.render_page(Page::Onboarding, window, cx)
+        })
+    }
 }
 
 fn cancel_draft(agents: &mut Agents, cx: &mut Context<Agents>) {

@@ -4,7 +4,7 @@ use super::*;
 use crate::{theme, ui::window_controls::TitleBar};
 use gpui_kit::{
     AppContext, Bounds, ClickEvent, Global, Render, TestSupportExt, WeakEntity, WindowBounds,
-    WindowDecorations, WindowHandle, WindowKind, WindowOptions, actions,
+    WindowHandle, WindowKind, WindowOptions, actions,
     component::{ActiveTheme, Icon, Root},
     div,
     prelude::*,
@@ -43,6 +43,12 @@ pub(crate) fn bind_keys(cx: &mut App) {
 /// # Errors
 /// Reports an unavailable network runtime or native window creation failure.
 pub(crate) fn open(request: OpenRequest, cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
+    if let Some((handle, host)) = crate::connections::page_host(cx) {
+        handle.update(cx, |_, window, cx| {
+            host.update(cx, |host, cx| host.show_history(request, window, cx))
+        })??;
+        return Ok(handle);
+    }
     if let Some(handle) = reopen(request.clone(), cx) {
         return Ok(handle);
     }
@@ -51,6 +57,38 @@ pub(crate) fn open(request: OpenRequest, cx: &mut App) -> anyhow::Result<WindowH
         .ok_or_else(|| anyhow::anyhow!(crate::i18n::tr!("agent-history-unavailable")))?;
     let (connection, events) = Connection::new(request.server.clone(), service.runtime());
     open_connected(request, connection, events, cx)
+}
+
+pub(crate) fn content(
+    request: OpenRequest,
+    window: &mut Window,
+    cx: &mut App,
+) -> anyhow::Result<Entity<Browser>> {
+    let service = cx
+        .try_global::<crate::agents::catalog::Service>()
+        .ok_or_else(|| anyhow::anyhow!(crate::i18n::tr!("agent-history-unavailable")))?;
+    let (connection, events) = Connection::new(request.server.clone(), service.runtime());
+    Ok(connected_content(request, connection, events, window, cx))
+}
+
+pub(crate) fn connected_content(
+    request: OpenRequest,
+    connection: Connection,
+    events: tokio::sync::mpsc::Receiver<Update>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Browser> {
+    let browser = cx.new(|cx| Browser::new(request, connection, events, window, cx));
+    focus(&browser, window, cx);
+    browser
+}
+
+pub(crate) fn focus(browser: &Entity<Browser>, window: &mut Window, cx: &mut App) {
+    browser.update(cx, |browser, cx| {
+        browser
+            .search
+            .update(cx, |search, cx| search.focus(window, cx))
+    });
 }
 
 fn reopen(request: OpenRequest, cx: &mut App) -> Option<WindowHandle<Root>> {
@@ -82,7 +120,7 @@ pub(crate) fn open_connected(
     let mut browser = None;
     let handle = cx.open_window(window_options(cx), |window, cx| {
         window.set_window_title(crate::i18n::tr!("agent-history-title"));
-        let history = cx.new(|cx| Browser::new(request, connection, events, window, cx));
+        let history = connected_content(request, connection, events, window, cx);
         browser = Some(history.downgrade());
         history.update(cx, |history, cx| {
             history
@@ -117,7 +155,6 @@ fn window_options(cx: &App) -> WindowOptions {
             cx,
         ))),
         window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
-        window_decorations: Some(WindowDecorations::Client),
         window_background: cx.global::<theme::Appearance>().background,
         app_id: Some("io.github.fourt145.GdsAgents".into()),
         ..TitleBar::window_options()

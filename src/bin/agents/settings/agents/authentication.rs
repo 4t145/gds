@@ -54,11 +54,12 @@ impl Agents {
             if self.authentications.contains_key(&spec.id) {
                 continue;
             }
+            let settings_path = crate::configuration::store(cx).path().to_owned();
             let panel = cx.new(|_| {
                 crate::authentication::Authentication::new(
                     spec.clone(),
                     status.clone(),
-                    self.store.path().to_owned(),
+                    settings_path,
                     window.window_handle(),
                     self.check_service.clone(),
                 )

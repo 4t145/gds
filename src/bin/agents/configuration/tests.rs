@@ -11,7 +11,7 @@ fn selected_store_is_available_without_theme_and_survives_theme_initialization(
         let selected = store(cx);
         assert_eq!(selected.path(), path);
         let mut document = selected.load().expect("default configuration");
-        let appearance = bas::config::Appearance {
+        let appearance = crate::configuration::appearance::Appearance {
             ui_font_size: Some(17.0),
             ..Default::default()
         };

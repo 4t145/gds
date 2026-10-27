@@ -740,6 +740,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "bas-client"
+version = "0.1.0"
+source = "git+https://github.com/4t145/bas?rev=9ccfcdb960213ba4f506e93241d9bcd78de3a0b4#9ccfcdb960213ba4f506e93241d9bcd78de3a0b4"
+dependencies = [
+ "agent-client-protocol",
+ "anyhow",
+ "dirs 6.0.0",
+ "email_address",
+ "futures",
+ "hyper-util",
+ "nix",
+ "prost",
+ "prost-types",
+ "protoc-bin-vendored",
+ "regex",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "strum",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower",
+ "tracing",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "base62"
 version = "2.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2505,6 +2541,7 @@ dependencies = [
  "ashpd",
  "async-channel",
  "async-io",
+ "bas-client",
  "base64 0.22.1",
  "chrono",
  "clap",
@@ -2513,7 +2550,6 @@ dependencies = [
  "fluent-bundle",
  "futures",
  "futures-lite",
- "gds-agents-client",
  "gds-uim",
  "globset",
  "gpui-kit",
@@ -2566,42 +2602,6 @@ dependencies = [
  "which",
  "wl-clipboard-rs",
  "zbus",
-]
-
-[[package]]
-name = "gds-agents-client"
-version = "0.1.0"
-dependencies = [
- "agent-client-protocol",
- "anyhow",
- "dirs 6.0.0",
- "email_address",
- "futures",
- "hyper-util",
- "nix",
- "prost",
- "prost-types",
- "protoc-bin-vendored",
- "rcgen",
- "regex",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "strum",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tower",
- "tracing",
- "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

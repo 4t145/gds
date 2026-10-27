@@ -2,8 +2,8 @@
 
 use gpui_kit::{
     App, AppContext, Bounds, Context, Entity, Focusable, Global, Render, Subscription, WeakEntity,
-    Window, WindowBounds, WindowDecorations, WindowHandle, WindowKind, WindowOptions, actions,
-    component::Root, prelude::*, px, size,
+    Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, component::Root,
+    prelude::*, px, size,
 };
 
 use crate::{settings::Settings, theme};
@@ -153,11 +153,9 @@ fn window_options(cx: &App) -> WindowOptions {
             cx,
         ))),
         window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
-        window_decorations: Some(WindowDecorations::Client),
         window_background: cx.global::<theme::Appearance>().background,
         app_id: Some("io.github.fourt145.GdsAgents".into()),
-        titlebar: None,
-        ..Default::default()
+        ..gds::ui::window::window_options()
     }
 }
 
@@ -260,7 +258,7 @@ impl Host {
             true
         });
         let events = cx.subscribe_in(&settings, window, |_, _, event, window, cx| match event {
-            super::Event::Close => {
+            super::Event::Close | super::Event::CloseWindow => {
                 unregister(window.window_handle().window_id(), cx);
                 window.remove_window();
             }

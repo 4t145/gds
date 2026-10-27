@@ -66,9 +66,6 @@ impl Workspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let controls = crate::ui::window_controls::WindowControls::new()
-            .on_maximize(cx.listener(Self::on_window_zoom))
-            .on_close_window(cx.listener(Self::on_window_close));
         el! {
             .div {
                 id: "conversation-header-row";
@@ -90,9 +87,18 @@ impl Workspace {
                 $(self.workspace_button(cx)),
                 ("/", cx).caption,
                 $(self.title_slot(cx)),
-                $(controls),
+                $(self.mode_button(cx)),
             ]
         }
+    }
+
+    pub(super) fn window_controls(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> crate::ui::window_controls::WindowControls {
+        crate::ui::window_controls::WindowControls::new()
+            .on_maximize(cx.listener(Self::on_window_zoom))
+            .on_close_window(cx.listener(Self::on_window_close))
     }
 
     fn on_header_rename(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {

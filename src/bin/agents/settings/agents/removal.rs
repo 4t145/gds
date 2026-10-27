@@ -2,7 +2,7 @@ use super::*;
 use gpui_kit::{assets::IconName, component::button::ButtonCustomVariant};
 
 impl Agents {
-    fn can_remove(&self, registration: &AgentRegistration, cx: &App) -> bool {
+    pub(super) fn can_remove(&self, registration: &AgentRegistration, cx: &App) -> bool {
         self.registry.editable()
             && self.configuration_task.is_none()
             && !self.dirty(cx)
@@ -76,22 +76,6 @@ impl Agents {
     fn remove_registration(&mut self, registration: AgentRegistration, cx: &mut Context<Self>) {
         if !self.can_remove(&registration, cx) {
             return;
-        }
-        // Confirm the saved identity again; never remove a replacement with the same ID.
-        if self.catalog_service.is_none() {
-            match self.store.load() {
-                Ok(document) if document.settings.agents.contains(&registration) => {}
-                Ok(_) => {
-                    self.message = DraftError::Changed.to_string();
-                    cx.notify();
-                    return;
-                }
-                Err(error) => {
-                    self.message = error.to_string();
-                    cx.notify();
-                    return;
-                }
-            }
         }
         self.saved = None;
         if let Some(spec) = registration.as_custom() {

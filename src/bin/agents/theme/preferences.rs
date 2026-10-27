@@ -3,7 +3,7 @@ use anyhow::{Result, ensure};
 use gds::{theme, typography};
 use gpui_kit::WindowBackgroundAppearance;
 
-pub(crate) use bas::config::appearance::{
+pub(crate) use crate::configuration::appearance::{
     Appearance as Preferences, Background, ComposerEnterBehavior, Language, ThemeMode, ThemeSource,
     ValidationError,
 };
@@ -12,7 +12,7 @@ pub(crate) use bas::config::appearance::{
 mod tests;
 
 pub(crate) const DEFAULT_LINE_HEIGHT: f32 = 1.6;
-pub(crate) const CONTENT_FONT_SCALE: f32 = 0.875;
+pub(crate) const CONTENT_FONT_SCALE: f32 = gds::design::UI_TEXT_SCALE;
 
 pub(super) struct Effective {
     pub preferences: Preferences,
@@ -33,7 +33,9 @@ pub(super) fn appearance(preferences: &Preferences) -> theme::Appearance {
             ThemeMode::Light => theme::ModePreference::Light,
             ThemeMode::Dark => theme::ModePreference::Dark,
         },
-        content_opacity: preferences.content_opacity.unwrap_or(1.),
+        content_opacity: preferences
+            .content_opacity
+            .unwrap_or(gds::design::CONTENT_OPACITY),
         ..Default::default()
     }
 }
@@ -62,7 +64,8 @@ pub(super) fn resolve(preferences: &Preferences) -> Result<Effective> {
             .content_line_height
             .unwrap_or(DEFAULT_LINE_HEIGHT),
         background: match preferences.background {
-            Background::Auto | Background::Transparent => WindowBackgroundAppearance::Transparent,
+            Background::Auto => gds::design::WINDOW_BACKGROUND,
+            Background::Transparent => WindowBackgroundAppearance::Transparent,
             Background::Opaque => WindowBackgroundAppearance::Opaque,
             Background::Blurred => WindowBackgroundAppearance::Blurred,
         },

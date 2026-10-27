@@ -2,15 +2,20 @@
 
 use std::path::PathBuf;
 
-use bas::config::FrontendStore as Store;
+pub mod appearance;
+mod connections;
+pub(crate) mod store;
+pub(crate) use connections::{ConnectionProfile, Frontend};
 use gpui_kit::{App, Global};
+pub(crate) use store::{Document, Error, Store};
 
-struct Configuration(Store);
+pub(crate) struct Configuration(Store);
 impl Global for Configuration {}
 
 pub(crate) fn init(settings_file: Option<PathBuf>, cx: &mut App) {
     let settings_file = settings_file.unwrap_or_else(|| {
-        bas::config::paths::config_root()
+        directories::BaseDirs::new()
+            .map(|dirs| dirs.config_dir().to_owned())
             .unwrap_or_else(|| PathBuf::from(".config"))
             .join("gds/agents/settings.json")
     });

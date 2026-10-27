@@ -1,15 +1,16 @@
 //! Frontend-owned service profiles; existing workspaces retain their own target.
 
-use bas::{
-    config::{ConnectionProfile, Frontend, FrontendDocument as Document, FrontendStore as Store},
-    service::tls::ConnectionOptions as Target,
-};
+use crate::configuration::{ConnectionProfile, Document, Frontend, Store};
+use bas::service::tls::ConnectionOptions as Target;
 use gpui_kit::{App, AppContext, BorrowAppContext, Context, Entity, Global};
 
 pub(crate) mod presentation;
 mod windows;
 pub(crate) use windows::WorkspaceHost;
-pub(crate) use windows::{init_windows, open_for, register, window_options, workspace_view};
+pub(crate) use windows::{
+    bind_page_keys, init_windows, open_for, page_host, register, target_page, window_options,
+    workspace_view,
+};
 
 #[cfg(all(test, feature = "gui-tests"))]
 mod tests;

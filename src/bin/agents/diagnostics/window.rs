@@ -5,7 +5,7 @@ use crate::{theme, ui::window_controls::TitleBar};
 use gpui_kit::{
     AnyElement, App, AppContext, Bounds, ClipboardItem, Context, Entity, FocusHandle, Global,
     KeyBinding, Render, Subscription, Task, TestSupportExt, UniformListScrollHandle, WeakEntity,
-    Window, WindowBounds, WindowDecorations, WindowHandle, WindowKind, WindowOptions, actions,
+    Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     assets::IconName,
     component::{
         ActiveTheme, Root,
@@ -136,7 +136,6 @@ pub(crate) fn open(cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
                 cx,
             ))),
             window_min_size: Some(size(px(MIN_WIDTH), px(MIN_HEIGHT))),
-            window_decorations: Some(WindowDecorations::Client),
             window_background: cx.global::<theme::Appearance>().background,
             app_id: Some("io.github.fourt145.GdsAgents".into()),
             ..TitleBar::window_options()

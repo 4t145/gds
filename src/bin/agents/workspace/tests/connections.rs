@@ -1,5 +1,5 @@
 use super::*;
-use bas::config::ConnectionProfile;
+use crate::configuration::ConnectionProfile;
 
 #[gpui_kit::test]
 fn footer_switches_backends_in_place_and_restores_drafts(cx: &mut TestAppContext) {

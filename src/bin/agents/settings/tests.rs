@@ -1,5 +1,6 @@
 use super::*;
-use bas::{config::ConnectionProfile, service::Target};
+use crate::configuration::ConnectionProfile;
+use bas::service::Target;
 use gpui_kit::{TestAppContext, component::Root, size, test::TestWindowExt};
 
 #[gpui_kit::test]
@@ -44,12 +45,12 @@ fn settings_group_by_owner_and_keep_conversation_behavior_out_of_appearance_rese
         window.click("settings-reset", cx);
     })
     .expect("logical settings arrangement");
-    let saved = bas::config::FrontendStore::at(path)
+    let saved = crate::configuration::Store::at(path)
         .load()
         .expect("saved frontend");
     assert_eq!(
         saved.settings.appearance.composer_enter_behavior,
-        bas::config::appearance::ComposerEnterBehavior::Newline
+        crate::configuration::appearance::ComposerEnterBehavior::Newline
     );
     assert_eq!(saved.settings.appearance.ui_font_size, None);
     assert!(matches!(

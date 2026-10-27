@@ -230,7 +230,13 @@ impl Form {
                 1.,
                 cx,
             ),
-            opacity: Numeric::new(p.content_opacity, 1., PERCENTAGE_RANGE, 100., cx),
+            opacity: Numeric::new(
+                p.content_opacity,
+                gds::design::CONTENT_OPACITY,
+                PERCENTAGE_RANGE,
+                100.,
+                cx,
+            ),
             language: language_choice(
                 vec![Language::Chinese, Language::English],
                 p.language,

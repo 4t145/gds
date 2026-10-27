@@ -7,7 +7,7 @@ publish = false
 license = "MIT"
 
 [workspace]
-members = ["src/bin/agents/client"]
+members = []
 resolver = "3"
 
 [lib]
@@ -27,7 +27,7 @@ default = []
 agents = [
     "dep:bas", "dep:clap", "dep:base64", "dep:jiff", "dep:reqwest",
     "dep:reqwest_client", "dep:serde_json_lenient", "dep:vt100",
-    "dep:unicode-segmentation", "dep:similar", "dep:markdown", "dep:html5ever",
+    "dep:similar", "dep:markdown", "dep:html5ever",
     "dep:markup5ever_rcdom", "dep:rodio", "dep:futures", "dep:tokio",
     "dep:tokio-util", "dep:tokio-stream", "dep:tonic", "dep:tracing",
     "dep:tracing-subscriber", "dep:uuid", "dep:regex", "dep:sha2", "dep:rustls",
@@ -48,7 +48,7 @@ toasty-driver-sqlite = { version = "=0.11.0", optional = true }
 strum = { version = "0.28", features = ["derive"], optional = true }
 time = { version = "0.3", features = ["parsing", "macros"], optional = true }
 agent-client-protocol = { version = "=3.3.0", features = ["process", "schemars", "unstable", "unstable_protocol_v2"], optional = true }
-bas = { package = "gds-agents-client", path = "src/bin/agents/client", optional = true }
+bas = { package = "bas-client", git = "https://github.com/4t145/bas", rev = "9ccfcdb960213ba4f506e93241d9bcd78de3a0b4", optional = true }
 base64 = { version = "0.22", optional = true }
 clap = { version = "4", features = ["derive", "env"], optional = true }
 futures = { version = "0.3", optional = true }
@@ -63,7 +63,7 @@ markdown = { version = "=1.0.0", optional = true }
 html5ever = { version = "=0.27.0", optional = true }
 markup5ever_rcdom = { version = "=0.3.0", optional = true }
 vt100 = { version = "0.16", optional = true }
-unicode-segmentation = { version = "1", optional = true }
+unicode-segmentation = "1"
 serde_json_lenient = { version = "0.2", optional = true }
 similar = { version = "2", optional = true }
 tokio = { version = "1", features = [
@@ -151,6 +151,7 @@ png = { version = "0.18", optional = true }
 process-wrap = { version = "=10.0.1", default-features = false, features = ["tokio1", "job-object", "kill-on-drop"], optional = true }
 
 [dev-dependencies]
+bas = { package = "bas-client", git = "https://github.com/4t145/bas", rev = "9ccfcdb960213ba4f506e93241d9bcd78de3a0b4", features = ["test-support"] }
 # Runtime-generated TLS fixtures for the imported connection tests.
 rcgen = "=0.13.2"
 rusqlite = "=0.40.2"

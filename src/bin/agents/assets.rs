@@ -83,6 +83,7 @@ gpui_kit::assets::icon_assets!(
         FileText,
         FilePen,
         Globe,
+        ListFilter,
         ListTodo,
         ListClock,
         ListX,

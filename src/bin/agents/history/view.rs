@@ -18,8 +18,6 @@ use gpui_kit::{
 };
 use std::cmp::Reverse;
 
-const AGENT_WIDTH: f32 = 184.;
-
 impl Browser {
     fn progress(&self, id: &'static str, message: &str, cx: &App) -> AnyElement {
         gds_uim::el! {
@@ -96,16 +94,13 @@ impl Browser {
             .div {
                 id: "agent-history-agents";
                 test_support;
-                w: AGENT_WIDTH.px;
+                w_full;
                 h_full;
                 flex;
                 flex_col;
                 flex_shrink_0;
                 gap_1;
                 p_3;
-                bg: $(gds::theme::sidebar_background(cx));
-                border_r_1;
-                border_color: $(cx.theme().border);
             } [
                 .div {
                     text_size: $(crate::ui::SMALL);
@@ -428,7 +423,7 @@ impl Browser {
             capabilities.load_session || capabilities.session_capabilities.resume.is_some();
         let at = info.updated_at.as_deref().and_then(time::parse_rfc3339);
         let time = at
-            .map(|at| time::recent_time(at, Timestamp::now()))
+            .map(|at| time::recent_time(at, Timestamp::now(), cx))
             .unwrap_or_else(|| crate::i18n::tr!("time-unknown").into());
         let raw_time = info
             .updated_at
@@ -539,15 +534,7 @@ impl Render for Browser {
             .operation
             .as_ref()
             .map(|_| crate::i18n::tr!("agent-history-operating"));
-        gds_uim::el! {
-            .div {
-                id: "agent-history";
-                test_support;
-                size_full;
-                flex;
-                text_size: $(crate::ui::SMALL);
-            } [
-                $(self.agent_filters(cx)),
+        let content = gds_uim::el! {
                 .div {
                     flex_1;
                     min_w_0;
@@ -606,7 +593,19 @@ impl Render for Browser {
                         ..$(empty.map(|message| crate::ui::feedback("agent-history-empty", message, cx.theme().foreground))),
                         ..groups,
                     ],
-                ],
+                ]
+        }.into_any_element();
+        let sidebar = self.agent_filters(cx);
+        let frame = gds::ui::Frame::new(super::SIDEBAR_WIDTH);
+        gds_uim::el! {
+            .div {
+                id: "agent-history";
+                test_support;
+                size_full;
+                flex;
+                text_size: $(crate::ui::SMALL);
+            } [
+                $(frame.workspace(sidebar, content, cx)),
             ]
         }
     }

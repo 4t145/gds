@@ -795,7 +795,6 @@ tool-preview-unavailable = Tool preview unavailable
 
 sidebar-bookmarks = Bookmarks
 sidebar-history = History
-sidebar-bookmarks-count = Bookmarks: { $count }
 session-bookmark = Add bookmark
 session-unbookmark = Remove bookmark
 session-bookmark-failed = Could not save bookmark
@@ -843,16 +842,14 @@ usage-unknown = { $used } · Capacity unknown
 usage-unknown-capacity = Context capacity · Unknown
 usage-used = Tokens used · { $used }
 usage-view = View context usage
-window-close = Close window
 window-compact = Switch to compact mode
 window-expand = Expand window
-window-maximize = Maximize window
-window-minimize = Minimize window
-window-restore = Restore window
 
 sidebar-workspaces = Workspaces
+sidebar-view = Switch view
+sidebar-archived = Archived
 
-settings-return = Return to conversations
+settings-return = Back
 
 settings-keybindings = Keyboard shortcuts
 shortcuts-search = Search conversations

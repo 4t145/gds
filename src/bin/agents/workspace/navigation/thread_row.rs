@@ -5,24 +5,29 @@ use gpui_kit::component::menu::PopupMenuItem;
 use crate::ui::time::recent_time;
 use crate::workspace::*;
 
-pub(super) const ACTIONS_WIDTH: f32 = layout::ICON_BUTTON_SIZE;
-pub(super) const ACTIONS_GAP: f32 = 4.;
-
 impl Workspace {
+    pub(super) fn session_row_status(&self, session: &SessionMeta) -> RowStatus {
+        if !self.sessions.healthy(session.id) {
+            return RowStatus::Failed;
+        }
+        RowStatus::for_session(
+            session,
+            self.sessions
+                .seen_replies
+                .get(&session.id)
+                .copied()
+                .unwrap_or(0),
+            self.selected.id == Some(session.id) && self.has_unread_reply(),
+        )
+    }
+
     pub(super) fn thread_row(&self, session: &SessionMeta, cx: &mut Context<Self>) -> AnyElement {
         let id = session.id;
         let editing = self.renaming_thread(id);
         let pinned = self.navigation.pinned.contains(&id);
         let bookmarked = self.navigation.bookmarks.contains(&id);
-        let state = if !self.sessions.healthy(id) {
-            RowStatus::Failed
-        } else {
-            RowStatus::for_session(
-                session,
-                self.sessions.seen_replies.get(&id).copied().unwrap_or(0),
-                self.selected.id == Some(id) && self.has_unread_reply(),
-            )
-        };
+        let selected = self.selected.id == Some(id);
+        let state = self.session_row_status(session);
         let group = SharedString::from(format!("thread-row-{id}"));
         let menu_session = session.clone();
         let title_content = if editing {
@@ -70,42 +75,48 @@ impl Workspace {
                 flex;
                 items_center;
                 gap_1;
-                when: $(!editing), {
-                    group_hover: $(group.clone()), $(gds_uim::m! {pr: $(px(ACTIONS_WIDTH + ACTIONS_GAP));});
-                };
             } [
                 $(title_content),
                 ..bookmark,
             ]
         };
-        let actions = gds_uim::el! {
-            .div {
-                id: $(SharedString::from(format!("thread-actions-{id}")));
-                test_support;
-                absolute;
-                top_0;
-                right_0;
-                flex;
-                items_center;
-                w: ACTIONS_WIDTH.px;
-                h: layout::ICON_BUTTON_SIZE.px;
-                invisible;
-                when: $(!editing), {
-                    group_hover: $(group.clone()), $(gds_uim::m! {visible;});
-                };
-            } [
-                $(self.thread_visibility_button(session, cx)),
-            ]
-        };
+        let actions = (!editing).then(|| {
+            gds_uim::el! {
+                .div {
+                    id: $(SharedString::from(format!("thread-actions-{id}")));
+                    test_support;
+                    flex;
+                    items_center;
+                    size: layout::ICON_BUTTON_SIZE.px;
+                } [
+                    $(self.thread_visibility_button(session, cx)),
+                ]
+            }
+            .into_any_element()
+        });
+        let trailing = gds::ui::hover_action(
+            group.clone(),
+            state.render(
+                format!("thread-status-{id}"),
+                format!("thread-indicator-{id}"),
+                cx,
+            ),
+            actions,
+        );
         let hint = format!(
             "{} · {} · {}",
             title(session),
             super::groups::name(session.cwd.as_deref()),
-            recent_time(session.updated_at, Timestamp::now())
+            recent_time(session.updated_at, Timestamp::now(), cx)
         );
         let agent = gds::ui::with_pin(
             self.agent_icon(format!("thread-agent-{id}"), session.agent.as_str(), cx)
-                .size(px(gds::ui::SIDEBAR_ICON_SIZE)),
+                .size(px(gds::ui::SIDEBAR_ICON_SIZE))
+                .text_color(if selected {
+                    cx.theme().sidebar_accent_foreground
+                } else {
+                    cx.theme().foreground
+                }),
             pinned,
             cx,
         );
@@ -115,6 +126,7 @@ impl Workspace {
                 test_support;
                 group: group;
                 w_full;
+                flex_shrink_0;
                 h: gds::ui::SIDEBAR_ITEM_HEIGHT.px;
                 px_2;
                 rounded: 6.0.px;
@@ -124,13 +136,21 @@ impl Workspace {
                 flex;
                 items_center;
                 gap_2;
-                when: $(self.selected.id == Some(id)), {
+                when: selected, {
                     bg: $(cx.theme().sidebar_accent);
+                    text_color: $(cx.theme().sidebar_accent_foreground);
                 };
-                hover: {
-                    bg: $(cx.theme().sidebar_accent);
+                when: $(!selected), {
+                    hover: {
+                        bg: $(cx.theme().list_hover);
+                    };
                 };
-                on_click: $(cx.listener(move |this, _, window, cx| this.select(id, window, cx)));
+                on_click: $(cx.listener(move |this, _, window, cx| {
+                    this.select(id, window, cx);
+                    if this.navigation.search_expanded {
+                        this.focus_input(window, cx);
+                    }
+                }));
                 on_mouse_down: gpui_kit::MouseButton::Right, $(cx.listener(move |this, event, window, cx| {
                             this.on_thread_row_context_menu(&menu_session, event, window, cx);
                 }));
@@ -143,18 +163,8 @@ impl Workspace {
                 } [
                     $(agent),
                 ],
-                .div {
-                    relative;
-                    flex_1;
-                    min_w_0;
-                    flex;
-                    justify_center;
-                } [
-                    $(title_row),
-
-                    $(actions),
-                ],
-                $(state.render(format!("thread-status-{id}"), format!("thread-indicator-{id}"), cx)),
+                $(title_row),
+                $(trailing),
             ]
         }.into_any_element()
     }
@@ -170,7 +180,7 @@ impl Workspace {
         self.begin_sidebar_rename(id, window, cx);
     }
 
-    fn on_thread_row_context_menu(
+    pub(super) fn on_thread_row_context_menu(
         &mut self,
         session: &SessionMeta,
         event: &gpui_kit::MouseDownEvent,
@@ -227,11 +237,7 @@ impl Workspace {
         let disabled = !self.backend.connected
             || self.sessions.pending.archiving.contains(&id)
             || self.sessions.pending.deleting.contains(&id);
-        let state = RowStatus::for_session(
-            session,
-            self.sessions.seen_replies.get(&id).copied().unwrap_or(0),
-            self.selected.id == Some(id) && self.has_unread_reply(),
-        );
+        let state = self.session_row_status(session);
         let can_close = !archived
             && !matches!(
                 session.status,

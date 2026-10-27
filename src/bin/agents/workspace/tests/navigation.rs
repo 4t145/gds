@@ -1,5 +1,185 @@
 use super::*;
-use gpui_kit::InputEvent;
+use gpui_kit::{AssetSource, InputEvent};
+
+#[gpui_kit::test]
+fn sidebar_search_filters_then_restores_the_list_without_losing_drafts(cx: &mut TestAppContext) {
+    let fixture = fixture(cx);
+    let mut first = session();
+    first.title = Some("Find this conversation".into());
+    let mut second = session();
+    second.title = Some("Another conversation".into());
+    attach(&fixture, first.clone(), cx);
+    attach(&fixture, second.clone(), cx);
+    cx.update_window(fixture.window.into(), |_, window, _| {
+        window.activate_window()
+    })
+    .expect("activate the search window for focus events");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.composer.input.update(cx, |input, cx| {
+                input.set_value("Keep this composition", window, cx);
+            });
+        });
+        assert!(window.try_find("thread-search").is_none());
+        window.click("sidebar-search", cx);
+        window.input("Find this", cx);
+        assert!(window.try_find(format!("session-{}", second.id)).is_none());
+    })
+    .expect("filter the sidebar");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.click(format!("session-{}", first.id), cx);
+    })
+    .expect("select a search result");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let view = fixture.view.read(cx);
+        assert_eq!(view.selected.id, Some(first.id));
+        assert_eq!(
+            view.sessions.drafts[&second.id].text,
+            "Keep this composition"
+        );
+        assert!(!view.navigation.search_expanded);
+        assert!(view.navigation.search.read(cx).value().is_empty());
+        assert!(window.find(format!("session-{}", second.id)).visible());
+
+        window.press("ctrl-f", cx);
+        window.input("no matching conversation", cx);
+    })
+    .expect("search with no results");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.press("ctrl-l", cx);
+    })
+    .expect("leave search for the composer");
+    cx.run_until_parked();
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        assert!(!fixture.view.read(cx).navigation.search_expanded);
+        assert!(window.try_find("thread-search").is_none());
+
+        window.press("ctrl-f", cx);
+        window.input("Find this", cx);
+        window.press("escape", cx);
+        let view = fixture.view.read(cx);
+        assert!(!view.navigation.search_expanded);
+        assert!(!view.window.compact);
+        assert!(view.composer.input.focus_handle(cx).is_focused(window));
+    })
+    .expect("temporary sidebar search preserves session selection and drafts");
+}
+
+#[gpui_kit::test]
+fn sidebar_view_menu_selects_each_view_and_keeps_the_current_one(cx: &mut TestAppContext) {
+    assert!(
+        crate::assets::Assets
+            .load(IconName::ListFilter.path().as_ref())
+            .expect("load the view menu icon")
+            .is_some()
+    );
+    let fixture = fixture(cx);
+    let active = session();
+    let mut archived = session();
+    archived.archived = true;
+    attach(&fixture, archived.clone(), cx);
+    attach(&fixture, active.clone(), cx);
+    cx.update(|cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.navigation.bookmarks.insert(active.id);
+            cx.notify();
+        });
+    });
+    for (collapsed, index, expected) in [false, true].into_iter().flat_map(|collapsed| {
+        workspace_navigation::View::ALL
+            .into_iter()
+            .enumerate()
+            .chain([
+                (1, workspace_navigation::View::Bookmarks),
+                (1, workspace_navigation::View::Bookmarks),
+            ])
+            .map(move |(index, view)| (collapsed, index, view))
+    }) {
+        cx.update_window(fixture.window.into(), |_, window, cx| {
+            if fixture.view.read(cx).window.sidebar_visible == collapsed {
+                window.press("ctrl-b", cx);
+            }
+            window.click(
+                if collapsed {
+                    "rail-view-menu"
+                } else {
+                    "sidebar-view-menu"
+                },
+                cx,
+            );
+            for _ in 0..=index {
+                window.press("down", cx);
+            }
+            window.press("enter", cx);
+        })
+        .expect("choose a sidebar view");
+        cx.run_until_parked();
+        cx.update_window(fixture.window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(fixture.view.read(cx).navigation.view, expected);
+            let is_archive = expected == workspace_navigation::View::Archived;
+            let prefix = if collapsed { "rail-session" } else { "session" };
+            assert_eq!(
+                window
+                    .try_find(format!("{prefix}-{}", archived.id))
+                    .is_some(),
+                is_archive
+            );
+            assert_eq!(
+                window.try_find(format!("{prefix}-{}", active.id)).is_some(),
+                !is_archive
+            );
+        })
+        .expect(
+            "sidebar menu switches list organization without toggling an already selected view",
+        );
+    }
+}
+
+#[gpui_kit::test]
+fn collapsed_sidebar_keeps_drafts_and_switches_sessions_without_expanding(cx: &mut TestAppContext) {
+    let fixture = fixture(cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.press("ctrl-b", cx);
+        window.click("rail-draft", cx);
+        window.input("Keep the new draft", cx);
+        window.press("ctrl-b", cx);
+        assert_eq!(
+            fixture.view.read(cx).composer.input.read(cx).value(),
+            "Keep the new draft"
+        );
+        assert!(window.find("draft-thread-0").visible());
+    })
+    .expect("folding keeps the current draft accessible");
+    let first = session();
+    let second = session();
+    attach(&fixture, first.clone(), cx);
+    attach(&fixture, second.clone(), cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.composer.input.update(cx, |input, cx| {
+                input.set_value("Keep the session draft", window, cx)
+            });
+        });
+        window.press("ctrl-b", cx);
+        window.click(format!("rail-session-{}", first.id), cx);
+        let view = fixture.view.read(cx);
+        assert_eq!(view.selected.id, Some(first.id));
+        assert!(!view.window.sidebar_visible);
+        assert_eq!(
+            view.sessions.drafts[&second.id].text,
+            "Keep the session draft"
+        );
+        window.right_click(format!("rail-session-{}", first.id), cx);
+        assert!(fixture.view.read(cx).window.menu.is_some());
+    })
+    .expect("collapsed session navigation preserves drafts and context actions");
+}
 
 #[gpui_kit::test]
 fn sidebar_draft_title_double_click_renames_offline_and_preserves_discard(cx: &mut TestAppContext) {
@@ -102,7 +282,8 @@ fn sidebar_draft_title_rejects_busy_and_stale_clicks(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn sidebar_title_clicks_select_then_rename_without_reselecting(cx: &mut TestAppContext) {
     let fixture = fixture(cx);
-    let first = session();
+    let mut first = session();
+    first.status = SessionStatus::Working;
     let second = session();
     attach(&fixture, first.clone(), cx);
     attach(&fixture, second.clone(), cx);
@@ -140,7 +321,14 @@ fn sidebar_title_clicks_select_then_rename_without_reselecting(cx: &mut TestAppC
                 "target {target}"
             );
         }
+        window.hover("sidebar-header", cx);
+        let status = window.find(format!("thread-status-{}", first.id)).bounds();
         window.hover(format!("session-{}", first.id), cx);
+        assert!(!window.find(format!("thread-status-{}", first.id)).visible());
+        assert_eq!(
+            window.find(format!("thread-actions-{}", first.id)).bounds(),
+            status
+        );
         assert_eq!(
             window
                 .find(format!("thread-actions-{}", first.id))

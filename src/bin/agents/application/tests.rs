@@ -146,7 +146,7 @@ fn confirm_quit_flushes_valid_settings_before_debounce_without_a_workspace(
         window.click("quit-confirm", cx);
     })
     .expect("flush then quit");
-    let saved: bas::config::Settings =
+    let saved: crate::configuration::store::Settings =
         serde_json::from_slice(&std::fs::read(&path).expect("saved settings"))
             .expect("preferences");
     assert_eq!(

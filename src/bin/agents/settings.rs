@@ -16,7 +16,7 @@ use gpui_kit::{
 };
 
 mod acp;
-mod agents;
+pub(crate) mod agents;
 mod appearance;
 mod connections;
 mod form;
@@ -25,6 +25,7 @@ pub(crate) mod window;
 
 pub(crate) enum Event {
     Close,
+    CloseWindow,
 }
 
 const SAVE_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
@@ -838,7 +839,14 @@ impl Render for Settings {
                 ],
             ]
         }.into_any_element();
-        let toolbar = frame.toolbar(back, toolbar_controls, cx);
+        let window_controls = gds::ui::window::WindowControls::new().on_close_window(cx.listener(
+            |this, _, window, cx| {
+                this.prepare_to_close(window, cx);
+                cx.emit(Event::CloseWindow);
+            },
+        ));
+        let toolbar =
+            frame.toolbar_with_window_controls(back, toolbar_controls, window_controls, cx);
         let navigation = el! {
             .div { # "settings-navigation"; test_support; size_full; min_h_0; overflow_y_scroll;
                 p: gds::ui::SIDEBAR_PADDING.px; flex; flex_col; gap_1;

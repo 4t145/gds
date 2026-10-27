@@ -1,6 +1,6 @@
 # 原生 App 开发与运行
 
-当前交付是 GDS Files 的首个本地文件浏览版本，不是概念网页。首要环境为 **NixOS + Niri / Wayland**；应用使用 GPUI 原生绘制，不包含 WebView。
+GDS 包含 Files、Agents 等平级的原生桌面应用，共用 `src/lib.rs`，各应用代码位于 `src/bin/<应用>/`。首要环境为 **NixOS + Niri / Wayland**；应用使用 GPUI 原生绘制，不包含 WebView。
 
 ## 运行
 
@@ -15,18 +15,29 @@ Linux 后端直接使用 UDisks2 系统 D-Bus，订阅对象和属性变化，�
 在图形会话里的终端执行；[justfile](../justfile) 会自动进入 Nix 开发环境：
 
 ```sh
-just dev
+just dev files
 # 指定起始目录（包含空格时正常加引号）：
-just dev "/path/to/folder"
+just dev files "/path/to/folder"
+# 启动 Agents，或打开它的快捷输入窗口：
+just dev agents
+just dev agents --compact
 # 查看可用命令：
 just
 ```
 
-`just build` 构建开发版，`just check` 检查所有目标，`just test` 运行测试，`just fmt` 格式化，`just fmt-check` 只检查格式。`just shell` 进入交互式开发环境。开发环境也包含 just；主机没有 just 时可用 `nix develop --impure --expr 'import ./shell.nix' --command just dev`。
+`just build` 构建全部应用的开发版，`just build files` / `just build agents` 单独构建指定应用。`just check` 检查所有目标，`just test` 运行测试，`just fmt` 格式化，`just fmt-check` 只检查格式。`just shell` 进入交互式开发环境。开发环境也包含 just；主机没有 just 时可用 `nix develop --impure --expr 'import ./shell.nix' --command just dev files`。
 
-应用参数会原样传递，例如 `just -- dev --help`；这些命令继承当前图形会话环境，不固定显示服务器或用户路径。
+应用参数会原样传递，例如 `just -- dev files --help` 或 `just -- dev agents --help`；这些命令继承当前图形会话环境，不固定显示服务器或用户路径。
 
-开发入口直接求值 [shell.nix](../shell.nix)，按 [flake.lock](../flake.lock) 的 revision 与 NAR hash 获取依赖，并和 flake 共用 [开发环境定义](../nix/dev-shell.nix)。这避免对整个项目做 flake 源快照：未置于 Git 中的工作目录，其 `.gitignore` 不会替 `nix develop` 排除 `target/`，反复快照会占用大量 Nix store 空间。请使用 `just dev` / `just shell`，而不是在这种目录中直接运行裸 `nix develop`。
+### 开发版安装
+
+频繁调整界面时使用 `just install-dev`，也可指定 `just install-dev files` / `just install-dev agents`。它用普通 Cargo dev profile 增量构建，复用当前仓库的 `target/debug` 缓存，再安装用户级命令和标为 `(Dev)` 的桌面入口，不走 Nix 发布包的完整 LTO 和包内测试流程。
+
+入口直接运行工作区中的 debug 二进制，不复制大型产物；运行库由记录在用户 state 目录中的 Nix 开发环境提供。后续 `just build` 或 `just install-dev` 更新相同二进制，重开窗口即可使用新版本。工作区与 `target/debug` 需要保留，尚未运行的测试仍可通过 `just test` 或 GUI 测试命令单独执行。
+
+`just uninstall-dev`（也可指定单个应用）恢复之前的命令和桌面入口；此前的 Nix 发布包仍然保留。发布交付继续使用 `just install`。
+
+开发入口直接求值 [shell.nix](../shell.nix)，按 [flake.lock](../flake.lock) 的 revision 与 NAR hash 获取依赖，并和 flake 共用 [开发环境定义](../nix/dev-shell.nix)。这避免对整个项目做 flake 源快照：未置于 Git 中的工作目录，其 `.gitignore` 不会替 `nix develop` 排除 `target/`，反复快照会占用大量 Nix store 空间。请使用 `just dev <应用>` / `just shell`，而不是在这种目录中直接运行裸 `nix develop`。
 
 保持图形会话提供的 `XDG_RUNTIME_DIR`、`WAYLAND_DISPLAY` 和 D-Bus 环境。不要为 GPUI 设置 `QT_QPA_PLATFORMTHEME`，也不要修改 Niri / DMS 配置来运行本应用。非 Nix 环境需要相应 Rust 工具链、Wayland/X11、xkbcommon、字体栈和 Vulkan/GL 运行库。
 
@@ -34,14 +45,14 @@ just
 cargo fmt --all --check
 cargo check --workspace --features agents --all-targets
 cargo test --workspace --features agents
-cargo build --bin gds-files
+cargo build --bins --features agents
 ```
 
 首次构建需要下载依赖并编译图形栈。可通过 `CARGO_BUILD_JOBS` 调整本机并行度；例如 `CARGO_BUILD_JOBS=6 cargo build --bin gds-files`。
 
 ## Release 构建
 
-执行 `just release`，或在开发环境中执行 `cargo build --release --locked --bin gds-files`，产物位于 `target/release/gds-files`。Nix 打包默认使用同一份 release 配置。
+执行 `just release` 构建整个套件，或用 `just release files` / `just release agents` 单独构建。等价的套件命令是 `cargo build --release --locked --bins --features agents`，产物位于 `target/release/gds-files` 和 `target/release/gds-agents`。Nix 打包默认使用同一份 release 配置；安装命令见 [NixOS 安装](nixos.md)。
 
 [Cargo.toml](../Cargo.toml) 的 `[profile.release]` 以运行性能为先：`opt-level = 3`、完整 LTO（`lto = "fat"`）和 `codegen-units = 1` 提供跨 crate 优化机会，代价是更长的编译／链接时间和更高的构建内存需求。`debug = 0`、`strip = "symbols"` 去掉调试信息和符号，缩小交付体积，但也会减少崩溃回溯信息；关闭增量编译（`incremental = false`）。参数说明见 [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)。实际性能收益需要用具体工作负载衡量。
 
@@ -252,6 +263,6 @@ GDS_TERMINAL=alacritty cargo run --bin gds-files
 后续开发以原生 App 和真实行为为中心；[概念设计](apps/files/concept.md)继续作为交互基线，不继续扩建 HTML 预览。
 # Agents
 
-`just dev-agents` 启动 Agents 完整工作区；`just dev-agents --compact` 启动快捷输入窗口。该应用连接独立运行的 Bas 服务。源码、配置路径、共享边界与剩余验收见 [Agents 迁移](apps/agents/migration.md)。
+`just dev agents` 启动 Agents 完整工作区；`just dev agents --compact` 启动快捷输入窗口。该应用连接独立运行的 Bas 服务。源码、配置路径、共享边界与剩余验收见 [Agents 迁移](apps/agents/migration.md)。
 
-`just check` / `just test` 现在包含 Agents 及其私有客户端库；只验证 Files 时可使用 `cargo check --bin gds-files` / `cargo test --bin gds-files`。Agents 的完整交互测试使用 `cargo test --features gui-tests --bin gds-agents`。
+`just check` / `just test` 包含两个应用；Agents 通过固定 Git revision 使用 BAS 的 `bas-client` 包，客户端自身测试在 BAS 仓库运行。只验证 Files 时可使用 `cargo check --bin gds-files` / `cargo test --bin gds-files`。Agents 的完整交互测试使用 `cargo test --features gui-tests --bin gds-agents`。

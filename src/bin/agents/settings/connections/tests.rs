@@ -121,7 +121,7 @@ fn discovery_is_read_only_until_add_and_never_retargets(cx: &mut TestAppContext)
     use bas::service::Target;
     let (directory, window, page) = setup(cx);
     let path = directory.path().join("settings.json");
-    let store = bas::config::Store::at(path.clone());
+    let store = crate::configuration::Store::at(path.clone());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -284,7 +284,7 @@ fn discovery_cancel_failure_and_stale_results_cannot_modify_editor(cx: &mut Test
 #[gpui_kit::test]
 fn mtls_editor_requires_file_references_and_preserves_them(cx: &mut TestAppContext) {
     let (directory, window, page) = setup(cx);
-    let store = bas::config::Store::at(directory.path().join("settings.json"));
+    let store = crate::configuration::Store::at(directory.path().join("settings.json"));
     cx.update_window(window.into(), |_, window, cx| {
         page.update(cx, |page, cx| {
             page.add(window, cx);
@@ -337,7 +337,7 @@ fn mtls_editor_requires_file_references_and_preserves_them(cx: &mut TestAppConte
 #[gpui_kit::test]
 fn remove_confirmation_rechecks_the_original_profile(cx: &mut TestAppContext) {
     let (directory, window, page) = setup(cx);
-    let store = bas::config::Store::at(directory.path().join("settings.json"));
+    let store = crate::configuration::Store::at(directory.path().join("settings.json"));
     let original = ConnectionProfile {
         id: "other".into(),
         name: "Original".into(),
@@ -394,7 +394,7 @@ fn save_validates_without_selecting_then_explicit_choose_and_confirm_remove(
 ) {
     let (directory, window, page) = setup(cx);
     let path = directory.path().join("settings.json");
-    let store = bas::config::Store::at(path.clone());
+    let store = crate::configuration::Store::at(path.clone());
     cx.update_window(window.into(), |_, window, cx| {
         assert_list_only(window, cx);
         // This component's test snapshot does not expose its disabled flag.

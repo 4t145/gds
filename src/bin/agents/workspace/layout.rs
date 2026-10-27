@@ -158,6 +158,11 @@ impl Workspace {
     }
 
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.navigation.search_expanded {
+            self.close_sidebar_search(window, cx);
+            self.focus_input(window, cx);
+            return;
+        }
         if self.cancel_queue_edit(window, cx) {
             return;
         }
@@ -460,7 +465,8 @@ impl Workspace {
         };
         let menu = self.application_button(cx);
         let controls = self.header_row(window, cx).into_any_element();
-        let toolbar = frame.toolbar(menu, controls, cx);
+        let toolbar =
+            frame.toolbar_with_window_controls(menu, controls, self.window_controls(cx), cx);
         let content = div()
             .flex()
             .flex_col()
@@ -476,8 +482,7 @@ impl Workspace {
                 .unwrap_or_else(|| self.draft_title())
         });
         let status = caption(status, cx).into_any_element();
-        let mode = self.mode_button(cx).into_any_element();
-        let footer = frame.footer(server, status, mode, cx);
+        let footer = frame.footer(server, status, div().into_any_element(), cx);
         div()
             .id("window-mode")
             .size_full()
@@ -571,14 +576,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.window.compact {
-            self.toggle_mode(window, cx);
-        }
-        self.window.sidebar_visible = true;
-        self.navigation
-            .search
-            .update(cx, |input, cx| input.focus(window, cx));
-        cx.notify();
+        self.open_sidebar_search(window, cx);
     }
 
     fn on_layout_toggle_sidebar_action(

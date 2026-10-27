@@ -75,7 +75,6 @@ const EVENT_BATCH: usize = 64;
 const LIST_OVERDRAW: f32 = 800.;
 const SIDEBAR_WIDTH: f32 = gds::ui::SIDEBAR_WIDTH;
 const AGENT_ICON_SIZE: f32 = 16.;
-const SIDEBAR_TIME_REFRESH: std::time::Duration = crate::ui::time::REFRESH_INTERVAL;
 
 use crate::application::OpenSettings;
 pub(super) use layout::initial_size;
@@ -118,6 +117,11 @@ pub(super) fn bind_keys(cx: &mut App) {
             Some("BasWorkspace > Input"),
         ),
         KeyBinding::new("escape", Dismiss, Some("BasWorkspace")),
+        KeyBinding::new(
+            "escape",
+            Dismiss,
+            Some("BasWorkspace > BasSidebarSearch > Input"),
+        ),
         KeyBinding::new("f5", Refresh, Some("BasWorkspace")),
         KeyBinding::new("ctrl-end", ScrollConversationToEnd, Some("BasWorkspace")),
         KeyBinding::new(
@@ -162,21 +166,6 @@ impl Workspace {
             view.window.size = window.bounds().size;
         }
         view.resize_window(window, cx);
-        view.navigation._clock = Some(cx.spawn_in(window, async move |view, cx| {
-            loop {
-                cx.background_executor().timer(SIDEBAR_TIME_REFRESH).await;
-                if view
-                    .update_in(cx, |this, _, cx| {
-                        if this.window.sidebar_visible && !this.window.compact {
-                            cx.notify();
-                        }
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        }));
         view
     }
 
@@ -251,17 +240,7 @@ impl Workspace {
             }),
             cx.observe(&search, |_, _, cx| cx.notify()),
             cx.subscribe_in(&search, window, |this, _, event, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    let query = this.navigation.search.read(cx).value().to_lowercase();
-                    if let Some(id) = this
-                        .visible_sessions()
-                        .iter()
-                        .find(|session| matches_query(session, &query))
-                        .map(|session| session.id)
-                    {
-                        this.select(id, window, cx);
-                    }
-                }
+                this.on_sidebar_search_event(event, window, cx);
             }),
             cx.observe_global::<Theme>(|this, cx| {
                 this.sync_mentions(cx);
@@ -407,7 +386,7 @@ impl Workspace {
         } else {
             crate::i18n::tr!("composer-send-hint")
         };
-        crate::ui::shortcut::format(label, self.composer_send_shortcut())
+        format!("{label} · {}", self.composer_send_shortcut())
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {

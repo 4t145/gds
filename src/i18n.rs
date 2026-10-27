@@ -7,10 +7,13 @@ use std::collections::HashMap;
 use thiserror::Error;
 use unic_langid::LanguageIdentifier;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Language {
+    #[serde(alias = "en-US")]
     English,
+    #[default]
+    #[serde(alias = "zh-CN")]
     Chinese,
 }
 

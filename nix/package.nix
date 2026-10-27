@@ -1,12 +1,17 @@
-{ lib, pkgs, rustPlatform, makeWrapper, makeDesktopItem, copyDesktopItems, pkg-config, cmake, application ? "files" }:
+{ lib, pkgs, rustPlatform, makeWrapper, makeDesktopItem, copyDesktopItems, pkg-config, cmake
+, application, desktopItem, description, postInstall ? "", checkFlags ? [ ]
+, extraBuildInputs ? [ ], extraNativeCheckInputs ? [ ]
+}:
 let
-  isAgents = application == "agents";
   binary = "gds-${application}";
-  appId = if isAgents then "io.github.fourt145.GdsAgents" else "io.github.fourt145.GdsFiles";
+  manifest = builtins.fromTOML (builtins.readFile ../Cargo.toml);
+  target = lib.findFirst (target: target.name == binary)
+    (throw "Cargo.toml does not declare ${binary}") manifest.bin;
+  features = target.required-features or [ ];
   libraries = with pkgs; [
     wayland libxkbcommon fontconfig freetype openssl zstd zlib
     libGL vulkan-loader dbus libx11 libxcb
-  ] ++ lib.optionals isAgents [ pkgs.alsa-lib ];
+  ] ++ extraBuildInputs;
 in
 rustPlatform.buildRustPackage {
   pname = binary;
@@ -18,48 +23,31 @@ rustPlatform.buildRustPackage {
       ../Cargo.toml
       ../Cargo.lock
       ../LICENSE
-      (lib.fileset.difference ../src (lib.fileset.unions [
-        ../src/bin/files/portal.py
-        ../src/bin/files/portal
-      ]))
+      ../src
     ];
   };
 
   cargoLock = {
     lockFile = ../Cargo.lock;
     outputHashes."gds-uim-0.1.0" = "sha256-yVojxpvvejy2NBKgcKsffBMqrPqe6YOJ94vtjCUz7dQ=";
+    outputHashes."bas-client-0.1.0" = "sha256-L+pNyI0blIoROxDEBjWW4waAtLBLCySGLqCYdP7yUw4=";
   };
 
   nativeBuildInputs = [ pkg-config cmake makeWrapper copyDesktopItems rustPlatform.bindgenHook ];
-  nativeCheckInputs = [ pkgs.dbus ] ++ lib.optionals isAgents [ pkgs.procps ];
+  nativeCheckInputs = [ pkgs.dbus ] ++ extraNativeCheckInputs;
   buildInputs = libraries;
   dontUseCmakeConfigure = true;
   cargoBuildFlags = [ "--bin" binary ];
-  buildFeatures = lib.optional isAgents "agents";
-  checkFeatures = lib.optional isAgents "agents";
-  cargoTestFlags = lib.optionals isAgents [ "--bin" binary "--lib" ];
-  # Nix's Linux sandbox rejects chmod with setuid/setgid bits.
-  checkFlags = [ "--skip=directory::tests::permissions_owner_group_and_access_time_come_from_real_metadata" ];
+  buildFeatures = features;
+  checkFeatures = features;
+  cargoTestFlags = [ "--bin" binary "--lib" ];
 
-  desktopItems = [ (makeDesktopItem {
-    name = appId;
-    desktopName = if isAgents then "GDS Agents" else "GDS Files";
-    genericName = if isAgents then "Agent Workspace" else "File Manager";
-    comment = if isAgents then "Manage Bas agents and conversations" else "Browse local files and folders";
-    exec = if isAgents then binary else "gds-files -- %f";
-    icon = if isAgents then "applications-development" else "system-file-manager";
+  desktopItems = [ (makeDesktopItem (desktopItem // {
     terminal = false;
-    categories = if isAgents then [ "Development" "Utility" ] else [ "System" "FileTools" "FileManager" ];
-    mimeTypes = lib.optionals (!isAgents) [ "inode/directory" ];
-    startupWMClass = appId;
-  }) ];
+    startupWMClass = desktopItem.name;
+  })) ];
 
-  postInstall = if isAgents then ''
-    install -Dm644 src/bin/agents/NOTICE "$out/share/doc/gds-agents/NOTICE"
-    install -Dm644 src/bin/agents/LICENSE "$out/share/licenses/gds-agents/LICENSE"
-  '' else ''
-    install -Dm644 ${./niri.kdl} "$out/share/gds-files/niri.kdl"
-  '';
+  inherit postInstall checkFlags;
 
   postFixup = ''
     wrapProgram "$out/bin/${binary}" \
@@ -68,7 +56,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = if isAgents then "Native GPUI workspace for Bas agents and conversations" else "Native GPUI file manager and single-file picker";
+    inherit description;
     homepage = "https://github.com/4t145/gds";
     mainProgram = binary;
     license = lib.licenses.mit;

@@ -70,7 +70,7 @@ audio-worker-ended = 音频播放服务已结束，请重试。
 ## Agent history
 
 agent-history-title = 会话管理
-agent-history-agent-filter = Agent
+agent-history-agent-filter = 智能体
 agent-history-all-agents = 全部
 agent-history-workspace-filter = 主工作区
 agent-history-all-workspaces = 全部工作区
@@ -771,7 +771,6 @@ tool-preview-unavailable = 工具内容暂时无法预览
 
 sidebar-bookmarks = 书签
 sidebar-history = 历史记录
-sidebar-bookmarks-count = 书签 · { $count }
 session-bookmark = 添加书签
 session-unbookmark = 移除书签
 session-bookmark-failed = 保存书签失败
@@ -802,12 +801,8 @@ usage-unknown = { $used } · 容量未知
 usage-unknown-capacity = 上下文容量 · 未知
 usage-used = 已用词元 · { $used }
 usage-view = 查看上下文用量
-window-close = 关闭窗口
 window-compact = 切换到紧凑模式
 window-expand = 展开窗口
-window-maximize = 最大化窗口
-window-minimize = 最小化窗口
-window-restore = 还原窗口
 logs-title = 调试日志
 logs-open-error = 无法打开调试日志
 logs-search = 搜索消息和来源…
@@ -821,8 +816,10 @@ logs-copy-selected = 复制所选日志
 logs-count = 显示 { $visible } 条 · 保留 { $retained } 条 · 已淘汰 { $evicted } 条
 
 sidebar-workspaces = 工作区
+sidebar-view = 切换视图
+sidebar-archived = 已归档
 
-settings-return = 返回会话
+settings-return = 返回上一级
 
 settings-keybindings = 快捷键
 shortcuts-search = 搜索会话

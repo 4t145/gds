@@ -1,30 +1,24 @@
 //! One relative-time policy for conversation history and other interface timestamps.
 
 use bas::model::Timestamp;
-use std::time::Duration;
+use gpui_kit::App;
+use std::time::{Duration, SystemTime};
 
-pub(crate) const REFRESH_INTERVAL: Duration = Duration::from_secs(60);
-const MINUTE: u64 = 60;
-const HOUR: u64 = 60 * MINUTE;
-const DAY: u64 = 24 * HOUR;
-
-pub(crate) fn recent_time(at: Timestamp, now: Timestamp) -> String {
-    relative_age(Duration::from_millis(
-        now.millis().saturating_sub(at.millis()),
-    ))
+pub(crate) fn recent_time(at: Timestamp, now: Timestamp, cx: &App) -> String {
+    let at = SystemTime::UNIX_EPOCH + Duration::from_millis(at.millis());
+    let now = SystemTime::UNIX_EPOCH + Duration::from_millis(now.millis());
+    gds::time::Format::Relative
+        .presentation(Some(at), now)
+        .text(cx)
+        .to_string()
 }
 
-pub(crate) fn relative_age(age: Duration) -> String {
-    let seconds = age.as_secs();
-    if seconds < MINUTE {
-        crate::i18n::tr!("time-just-now").into()
-    } else if seconds < HOUR {
-        crate::i18n::tr!("time-minutes", count = seconds / MINUTE)
-    } else if seconds < DAY {
-        crate::i18n::tr!("time-hours", count = seconds / HOUR)
-    } else {
-        crate::i18n::tr!("time-days", count = seconds / DAY)
-    }
+pub(crate) fn relative_age(age: Duration, cx: &App) -> String {
+    let now = SystemTime::now();
+    gds::time::Format::Relative
+        .presentation(now.checked_sub(age), now)
+        .text(cx)
+        .to_string()
 }
 
 pub(crate) fn parse_rfc3339(value: &str) -> Option<Timestamp> {

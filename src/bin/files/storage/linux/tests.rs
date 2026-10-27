@@ -2,7 +2,7 @@
 //! These tests never connect to the system bus or operate a real disk.
 
 use std::{
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
 };
@@ -166,15 +166,25 @@ struct Bus {
 }
 impl Bus {
     fn new() -> Self {
+        let mut config = tempfile::NamedTempFile::new().expect("private bus configuration");
+        config
+            .write_all(include_bytes!("tests/assets/dbus-session.conf"))
+            .expect("write private bus configuration");
         let mut process = Command::new("dbus-daemon")
-            .args(["--session", "--nofork", "--print-address=1", "--nopidfile"])
+            .arg("--config-file")
+            .arg(config.path())
+            .args(["--nofork", "--print-address=1", "--nopidfile"])
             .stdout(Stdio::piped())
             .spawn()
             .expect("dbus-daemon is required for the storage protocol tests");
         let mut address = String::new();
-        BufReader::new(process.stdout.take().expect("bus stdout"))
+        let length = BufReader::new(process.stdout.take().expect("bus stdout"))
             .read_line(&mut address)
             .expect("private bus address");
+        assert!(
+            length > 0,
+            "dbus-daemon exited without a private bus address"
+        );
         Self {
             process,
             address: address.trim().to_owned(),

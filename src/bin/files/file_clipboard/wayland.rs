@@ -1,11 +1,8 @@
 use std::{
-    io::{self, Read},
-    os::fd::AsFd,
     path::PathBuf,
     time::{Duration, Instant},
 };
 
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use wl_clipboard_rs::{copy, paste};
 
 use super::{
@@ -14,7 +11,6 @@ use super::{
 };
 
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const READ_BUFFER_SIZE: usize = 8192;
 
 pub(super) struct Clipboard;
 
@@ -124,45 +120,12 @@ impl Clipboard {
             Err(paste::Error::ClipboardEmpty | paste::Error::NoMimeType) => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        Self::read_pipe(pipe, deadline).map(Some)
-    }
-
-    /// # Errors
-    /// Reports stalled, oversized or unreadable streams.
-    fn read_pipe(mut pipe: impl Read + AsFd, deadline: Instant) -> Result<Vec<u8>, Error> {
-        let mut contents = Vec::new();
-        let mut buffer = [0u8; READ_BUFFER_SIZE];
-        loop {
-            let remaining = deadline
-                .checked_duration_since(Instant::now())
-                .ok_or(Error::Timeout)?;
-            let timeout = Timespec {
-                tv_sec: remaining.as_secs() as _,
-                tv_nsec: remaining.subsec_nanos() as _,
-            };
-            let ready = {
-                let mut fds = [PollFd::new(&pipe, PollFlags::IN)];
-                match poll(&mut fds, Some(&timeout)) {
-                    Ok(count) => count,
-                    Err(rustix::io::Errno::INTR) => continue,
-                    Err(error) => return Err(io::Error::from(error).into()),
-                }
-            };
-            if ready == 0 {
-                return Err(Error::Timeout);
-            }
-            let count = match pipe.read(&mut buffer) {
-                Ok(count) => count,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(error.into()),
-            };
-            if count == 0 {
-                return Ok(contents);
-            }
-            if contents.len() + count > MAX_PAYLOAD_BYTES {
-                return Err(Error::TooLarge);
-            }
-            contents.extend_from_slice(&buffer[..count]);
-        }
+        gds::desktop::clipboard::read_pipe(pipe, deadline, MAX_PAYLOAD_BYTES)
+            .map(Some)
+            .map_err(|error| match error {
+                gds::desktop::clipboard::Error::Io(error) => Error::Io(error),
+                gds::desktop::clipboard::Error::Timeout => Error::Timeout,
+                gds::desktop::clipboard::Error::TooLarge => Error::TooLarge,
+            })
     }
 }

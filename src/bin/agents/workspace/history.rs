@@ -1,4 +1,4 @@
-//! Conversation integration only; the history window owns discovery and import UI.
+//! Conversation integration; discovery and import are hosted above the current workspace.
 
 use super::*;
 use bas::model::SessionSnapshot;
@@ -58,6 +58,7 @@ impl Workspace {
     ) -> crate::history::OpenRequest {
         let owner = cx.entity().downgrade();
         let parent = self.window.handle;
+        let server = self.backend.server.clone();
         crate::history::OpenRequest {
             server: self.backend.server.clone(),
             agents: self.backend.agents.clone(),
@@ -79,16 +80,34 @@ impl Workspace {
                 )
                 .collect(),
             open_session: std::rc::Rc::new(move |snapshot, cx| {
-                parent
-                    .update(cx, |_, window, cx| {
-                        owner.update(cx, |this, cx| {
-                            this.adopt_agent_session(snapshot, window, cx);
-                            if this.window.presented {
-                                window.activate_window();
+                if owner.upgrade().is_none() || !cx.windows().contains(&parent) {
+                    return false;
+                }
+                let owner = owner.clone();
+                let server = server.clone();
+                cx.defer(move |cx| {
+                    let host = parent.downcast::<Root>().and_then(|handle| {
+                        let root = handle.read(cx).ok()?;
+                        crate::diagnostics::content(root, cx)
+                            .downcast::<crate::connections::WorkspaceHost>()
+                            .ok()
+                    });
+                    let _ = parent.update(cx, |_, window, cx| {
+                        if let Some(host) = host {
+                            if let Err(error) = host
+                                .update(cx, |host, cx| host.show_workspace_for(server, window, cx))
+                            {
+                                tracing::warn!(%error, "cannot return to the history workspace");
+                                return;
                             }
-                        })
-                    })
-                    .is_ok_and(|result| result.is_ok())
+                        }
+                        let _ = owner.update(cx, |this, cx| {
+                            this.adopt_agent_session(snapshot, window, cx);
+                            window.activate_window();
+                        });
+                    });
+                });
+                true
             }),
         }
     }
@@ -101,14 +120,24 @@ impl Workspace {
     ) {
         self.close_reply_preview(window, cx);
         self.close_menu(window, cx);
+        self.record_settings_target(cx);
         let request = self.history_request(agent, cx);
-        if let Err(error) = crate::history::window::open(request, cx) {
-            self.operation_error(
-                crate::i18n::tr!("agent-history-title"),
-                error.to_string(),
-                cx,
-            );
-        }
+        let owner = cx.entity().downgrade();
+        let parent = self.window.handle;
+        cx.defer(move |cx| {
+            if !crate::connections::target_page(parent, cx) {
+                return;
+            }
+            if let Err(error) = crate::history::window::open(request, cx) {
+                let _ = owner.update(cx, |this, cx| {
+                    this.operation_error(
+                        crate::i18n::tr!("agent-history-title"),
+                        error.to_string(),
+                        cx,
+                    );
+                });
+            }
+        });
     }
 
     fn adopt_agent_session(

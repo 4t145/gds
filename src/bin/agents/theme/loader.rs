@@ -1,7 +1,7 @@
 //! Read complete preferences and palette snapshots before changing live appearance.
 use super::preferences::{self, Effective, Preferences};
+use crate::configuration::{Document as SettingsDocument, Store};
 use anyhow::Result;
-use bas::config::{FrontendDocument as SettingsDocument, FrontendStore as Store};
 use gpui_kit::WindowAppearance;
 
 #[cfg(test)]
@@ -107,6 +107,10 @@ impl Loader {
 }
 
 impl Snapshot {
+    pub fn source_paths(&self) -> Vec<std::path::PathBuf> {
+        self.palette.source_paths()
+    }
+
     pub(super) fn resolve(&self) -> Result<Resolved> {
         Ok(Resolved {
             effective: preferences::resolve(&self.preferences)?,

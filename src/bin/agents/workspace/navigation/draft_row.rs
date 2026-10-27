@@ -1,7 +1,8 @@
 use bas::model::Timestamp;
 use gpui_kit::component::menu::PopupMenuItem;
 
-use super::{groups, thread_row};
+use super::groups;
+use crate::ui::session_status::Status;
 use crate::workspace::*;
 
 pub(in crate::workspace) struct Metadata {
@@ -114,25 +115,16 @@ impl Workspace {
                 flex;
                 items_center;
                 min_w_0;
-                when: $(!editing), {
-                    group_hover: $(group.clone()), $(gds_uim::m! {pr: $(px(thread_row::ACTIONS_WIDTH + thread_row::ACTIONS_GAP));});
-                };
             } [
                 $(title),
             ]
         };
-        let actions = gds_uim::el! {
+        let actions = (!editing).then(|| gds_uim::el! {
             .div {
                 id: $(SharedString::from(format!("draft-thread-actions-{index}")));
                 test_support;
-                absolute;
-                top_0;
-                right_0;
                 flex;
-                invisible;
-                when: $(!editing), {
-                    group_hover: $(group.clone()), $(gds_uim::m! {visible;});
-                };
+                size: layout::ICON_BUTTON_SIZE.px;
             } [
                 ($(SharedString::from(format!("discard-draft-{index}"))), IconName::Trash).layout::icon_button {
                     accessibility_label: $(crate::i18n::tr!("draft-discard"));
@@ -141,22 +133,35 @@ impl Workspace {
                     on_click: $(cx.listener(Self::on_draft_row_discard));
                 },
             ]
+        }.into_any_element());
+        let state = if self.selected.creating {
+            Status::Starting
+        } else {
+            Status::Idle
         };
+        let trailing = gds::ui::hover_action(
+            group.clone(),
+            state.render(
+                format!("draft-thread-status-{index}"),
+                format!("draft-thread-indicator-{index}"),
+                cx,
+            ),
+            actions,
+        );
         gds_uim::el! {
             .div {
                 id: $(group.clone());
                 test_support;
                 group: group;
                 w_full;
+                flex_shrink_0;
                 h: gds::ui::SIDEBAR_ITEM_HEIGHT.px;
                 px_2;
                 rounded: 6.0.px;
                 tooltip_show_delay: gds::ui::TOOLTIP_DELAY;
-                hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(crate::ui::time::recent_time(updated_at, now), window, cx));
+                hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(crate::ui::time::recent_time(updated_at, now, cx), window, cx));
                 bg: $(cx.theme().sidebar_accent);
-                hover: {
-                    bg: $(cx.theme().sidebar_accent);
-                };
+                text_color: $(cx.theme().sidebar_accent_foreground);
                 flex;
                 items_center;
                 gap_2;
@@ -170,18 +175,12 @@ impl Workspace {
                     items_center;
                     flex_shrink_0;
                 } [
-                    $(self.agent_icon(format!("draft-thread-agent-{index}"), &self.selected.agent, cx).size(px(gds::ui::SIDEBAR_ICON_SIZE))),
+                    $(self.agent_icon(format!("draft-thread-agent-{index}"), &self.selected.agent, cx)
+                        .size(px(gds::ui::SIDEBAR_ICON_SIZE))
+                        .text_color(cx.theme().sidebar_accent_foreground)),
                 ],
-                .div {
-                    relative;
-                    flex_1;
-                    min_w_0;
-                    flex;
-                    justify_center;
-                } [
-                    $(title_row),
-                    $(actions),
-                ],
+                $(title_row),
+                $(trailing),
             ]
         }.into_any_element()
     }
@@ -196,7 +195,7 @@ impl Workspace {
         self.discard_new_draft(window, cx);
     }
 
-    fn on_draft_row_context_menu(
+    pub(super) fn on_draft_row_context_menu(
         &mut self,
         directory: Option<PathBuf>,
         disabled: bool,

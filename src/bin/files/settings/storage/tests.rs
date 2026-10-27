@@ -218,7 +218,7 @@ fn a_failed_import_keeps_the_legacy_preferences_for_this_run() {
     assert!(loaded.preferences.files.show_hidden);
     assert!(matches!(
         loaded.migration,
-        Some(Error::TemporaryFile { .. })
+        Some(Error::Persistence(gds::configuration::Error::ReadOnly(_)))
     ));
     assert!(!application.exists());
     assert_eq!(
@@ -241,7 +241,7 @@ fn an_import_never_overwrites_a_configuration_created_concurrently() {
 
     assert!(matches!(
         write_atomic(&application, &Preferences::default(), false),
-        Err(Error::Persist { .. })
+        Err(Error::Persistence(gds::configuration::Error::Conflict(_)))
     ));
     assert_eq!(
         fs::read_to_string(&application).expect("read concurrent preferences"),
@@ -270,7 +270,7 @@ fn an_import_that_lost_to_a_concurrent_configuration_uses_that_configuration() {
         .expect_err("refuse to replace the concurrent configuration");
     assert!(matches!(
         &lost,
-        Error::Persist { source, .. } if source.kind() == io::ErrorKind::AlreadyExists
+        Error::Persistence(gds::configuration::Error::Conflict(_))
     ));
     let loaded =
         import_outcome(&application, legacy_preferences, lost).expect("use concurrent preferences");
@@ -307,7 +307,9 @@ fn replacement_leaves_only_the_complete_configuration_behind() {
                 .into_owned()
         })
         .collect();
-    assert_eq!(entries, vec!["settings.toml".to_owned()]);
+    assert_eq!(entries.len(), 2);
+    assert!(entries.contains(&"settings.toml".to_owned()));
+    assert!(entries.contains(&"settings.toml.lock".to_owned()));
     assert_eq!(load_from(&path).expect("reload preferences"), preferences);
 }
 
@@ -325,7 +327,7 @@ fn readonly_configuration_is_not_replaced_even_when_the_directory_is_writable() 
 
     assert!(matches!(
         save_to(&path, &Preferences::default()),
-        Err(Error::ReadOnly { .. })
+        Err(Error::Persistence(gds::configuration::Error::ReadOnly(_)))
     ));
     assert_eq!(
         fs::read_to_string(&path).expect("read unchanged file"),
@@ -359,7 +361,7 @@ fn declarative_symlinks_can_be_read_but_cannot_be_replaced() {
     );
     assert!(matches!(
         save_to(&path, &Preferences::default()),
-        Err(Error::SymbolicLink { .. })
+        Err(Error::Persistence(gds::configuration::Error::Symlink(_)))
     ));
     assert_eq!(fs::read_link(&path).expect("retain symlink"), target);
     assert_eq!(
@@ -381,7 +383,7 @@ fn a_dangling_configuration_link_is_reported_instead_of_reset_to_defaults() {
     assert!(matches!(load_from(&path), Err(Error::Read { .. })));
     assert!(matches!(
         save_to(&path, &Preferences::default()),
-        Err(Error::SymbolicLink { .. })
+        Err(Error::Persistence(gds::configuration::Error::Symlink(_)))
     ));
     assert_eq!(fs::read_link(&path).expect("retain dangling link"), target);
     assert!(!target.exists());

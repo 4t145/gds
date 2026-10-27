@@ -1,7 +1,10 @@
 //! Desktop launch helpers. Call these from a background executor.
 
 #[cfg(target_os = "linux")]
+pub mod clipboard;
+#[cfg(target_os = "linux")]
 mod portal;
+pub mod watch;
 
 #[cfg(test)]
 mod tests;

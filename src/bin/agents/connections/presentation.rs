@@ -71,7 +71,7 @@ pub(crate) fn tooltip(target: &Target) -> String {
     }
 }
 
-pub(crate) fn menu_item(profile: &bas::config::ConnectionProfile) -> PopupMenuItem {
+pub(crate) fn menu_item(profile: &crate::configuration::ConnectionProfile) -> PopupMenuItem {
     let name = profile.name.clone();
     let address = endpoint(&profile.target);
     let hint = format!("{name} · {}", tooltip(&profile.target));

@@ -41,11 +41,11 @@ fn marker_time(entry: &HistoryOverviewEntry) -> Timestamp {
     Timestamp::from_millis(u64::try_from(entry.timestamp_millis).unwrap_or_default())
 }
 
-fn marker_hint(entry: &HistoryOverviewEntry, bookmarked: bool) -> String {
+fn marker_hint(entry: &HistoryOverviewEntry, bookmarked: bool, cx: &App) -> String {
     format!(
         "{}\n{}\n{}\n{}",
         entry.preview,
-        crate::ui::time::recent_time(marker_time(entry), Timestamp::now()),
+        crate::ui::time::recent_time(marker_time(entry), Timestamp::now(), cx),
         if bookmarked {
             crate::i18n::tr!("turn-marker-remove-bookmark")
         } else {
@@ -107,7 +107,7 @@ impl Workspace {
                 .is_some_and(|bookmarks| bookmarks.contains(&cursor));
             let marker_id = SharedString::from(format!("turn-marker-{cursor}"));
             let group = marker_id.clone();
-            let hint: SharedString = marker_hint(entry, bookmarked).into();
+            let hint: SharedString = marker_hint(entry, bookmarked, cx).into();
             let preview = crate::ui::tooltip::wrap_tokens(&entry.preview);
             let at = marker_time(entry);
             let control_hint = if bookmarked {
@@ -137,7 +137,7 @@ impl Workspace {
                     cursor_pointer;
                     hoverable_tooltip: $(move |window, cx| {
                             let preview = preview.clone();
-                            let at = crate::ui::time::recent_time(at, Timestamp::now());
+                            let at = crate::ui::time::recent_time(at, Timestamp::now(), cx);
                             let previous = shortcuts::hint(crate::i18n::tr!("turn-marker-previous"),
                                 &shortcuts::PreviousConversationTurn, window);
                             let next = shortcuts::hint(crate::i18n::tr!("turn-marker-next"),

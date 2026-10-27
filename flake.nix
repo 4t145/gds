@@ -7,38 +7,41 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forEachSystem = nixpkgs.lib.genAttrs systems;
+      applications = builtins.attrNames (nixpkgs.lib.filterAttrs
+        (_: type: type == "directory") (builtins.readDir ./nix/apps));
+      applicationNames = map (name: "gds-${name}") applications;
     in {
       packages = forEachSystem (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          files = pkgs.callPackage ./nix/package.nix { };
-        in {
-          gds-files = files;
-          gds-agents = pkgs.callPackage ./nix/package.nix { application = "agents"; };
-          xdg-desktop-portal-gds = pkgs.callPackage ./nix/portal.nix { gds-files = files; };
-          default = files;
+          packages = nixpkgs.lib.genAttrs applicationNames (name:
+            pkgs.callPackage (./nix/apps + "/${nixpkgs.lib.removePrefix "gds-" name}/package.nix") { });
+          suite = pkgs.buildEnv {
+            name = "gds";
+            paths = builtins.attrValues packages;
+            meta.description = "GDS native desktop application suite";
+          };
+        in packages // {
+          gds = suite;
+          xdg-desktop-portal-gds = pkgs.callPackage ./nix/apps/files/portal.nix {
+            gds-files = packages.gds-files;
+          };
+          default = suite;
         });
 
-      apps = forEachSystem (system: {
-        gds-files = {
+      apps = forEachSystem (system:
+        nixpkgs.lib.genAttrs applicationNames (name: {
           type = "app";
-          program = "${self.packages.${system}.gds-files}/bin/gds-files";
-        };
-        gds-agents = {
-          type = "app";
-          program = "${self.packages.${system}.gds-agents}/bin/gds-agents";
-        };
-        default = {
-          type = "app";
-          meta.description = "GDS Files";
-          program = "${self.packages.${system}.gds-files}/bin/gds-files";
-        };
-      });
+          meta.description = self.packages.${system}.${name}.meta.description;
+          program = "${self.packages.${system}.${name}}/bin/${name}";
+        }));
 
-      nixosModules = {
-        gds-files = import ./nix/nixos-module.nix self;
-        gds-agents = import ./nix/agents-module.nix self;
-        default = self.nixosModules.gds-files;
+      nixosModules = nixpkgs.lib.genAttrs applicationNames (name:
+        import (./nix/apps + "/${nixpkgs.lib.removePrefix "gds-" name}/module.nix") self
+      ) // {
+        default = {
+          imports = map (name: self.nixosModules.${name}) applicationNames;
+        };
       };
 
       checks = forEachSystem (system:

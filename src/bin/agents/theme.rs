@@ -7,13 +7,14 @@ pub(crate) mod preferences;
 mod tests;
 
 use gpui_kit::{
-    AnyView, App, Context, Global, Pixels, Styled, Task, Window, WindowBackgroundAppearance,
+    AnyView, App, Context, Global, Pixels, Styled, Subscription, Task, Window,
+    WindowBackgroundAppearance,
     component::{Root, StyledExt, Theme, ThemeMode},
     px,
 };
 use loader::Loader;
 use preferences::Preferences;
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::{cell::Cell, rc::Rc};
 
 pub(crate) use loader::Document;
 
@@ -58,8 +59,6 @@ impl Editor {
     }
 }
 
-const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
-
 pub(super) fn content_font_size(cx: &App) -> Pixels {
     px(cx.global::<Appearance>().content_font_size)
 }
@@ -81,6 +80,7 @@ impl Global for WatchConfig {}
 
 struct WatchTask {
     _task: Task<()>,
+    _subscription: Subscription,
 }
 impl Global for WatchTask {}
 
@@ -141,44 +141,64 @@ pub(super) fn watch(cx: &mut App) {
         return;
     }
     let config = cx.global::<WatchConfig>().clone();
-    let sources = config.loader;
+    let observer = gds::theme::Observer::shared(cx);
+    let mut paths = vec![config.loader.store.path().to_owned()];
+    if let Ok(document) = config.loader.document() {
+        paths.extend(preferences::appearance(&document.preferences).source_paths());
+    }
+    if let Ok(snapshot) = config
+        .loader
+        .read(ThemeMode::from(cx.window_appearance()).is_dark())
+    {
+        paths.extend(snapshot.source_paths());
+    }
+    observer.update(cx, |observer, _| {
+        if let Err(error) = observer.watch("agents-preferences", paths) {
+            tracing::warn!(%error, "cannot watch frontend appearance");
+        }
+    });
+    let (sender, receiver) = async_channel::bounded(1);
+    let revision = config.generation.clone();
+    let subscription = cx.subscribe(&observer, move |_, _, _| {
+        revision.set(revision.get().wrapping_add(1));
+        let _ = sender.try_send(());
+    });
     let task = cx.spawn(async move |cx| {
         let mut reload = loader::Reload::default();
         let mut previous_error = None;
-        loop {
+        while receiver.recv().await.is_ok() {
             let generation = config.generation.get();
-            let source = sources.clone();
+            let source = config.loader.clone();
             let dark = cx.update(|cx| ThemeMode::from(cx.window_appearance()).is_dark());
-            let files = cx
-                .background_executor()
-                .spawn(async move { source.read(dark) })
-                .await;
+            let files = cx.background_executor().spawn(async move { source.read(dark) }).await;
             cx.update(|cx| {
-                    // Saves can occur during either the read or the polling interval.
-                    reload.invalidate_on_save(config.generation.get());
-                    if generation != config.generation.get() {
-                        return;
+                reload.invalidate_on_save(config.generation.get());
+                if generation != config.generation.get() { return; }
+                match files.and_then(|snapshot| {
+                    let mut paths = snapshot.source_paths();
+                    paths.push(config.loader.store.path().to_owned());
+                    observer.update(cx, |observer, _| observer.watch("agents-preferences", paths))?;
+                    reload.update(snapshot)
+                }) {
+                    Ok(effective) => {
+                        previous_error = None;
+                        if let Some(effective) = effective { apply(effective, None, cx); }
                     }
-                    match files.and_then(|snapshot| reload.update(snapshot)) {
-                        Ok(effective) => {
-                            previous_error = None;
-                            if let Some(effective) = effective {
-                                apply(effective, None, cx);
-                            }
-                        }
-                        Err(error) => {
-                            let error = format!("{error:#}");
-                            if previous_error.as_ref() != Some(&error) {
-                                tracing::warn!(%error, "cannot reload appearance; keeping the last valid configuration");
-                                previous_error = Some(error);
-                            }
+                    Err(error) => {
+                        let error = format!("{error:#}");
+                        if previous_error.as_ref() != Some(&error) {
+                            tracing::warn!(%error, "cannot reload appearance; keeping the last valid configuration");
+                            previous_error = Some(error);
                         }
                     }
-                });
-            cx.background_executor().timer(REFRESH_INTERVAL).await;
+                }
+            });
         }
     });
-    cx.set_global(WatchTask { _task: task });
+    cx.set_global(WatchTask {
+        _task: task,
+        _subscription: subscription,
+    });
 }
 
 fn apply(resolved: loader::Resolved, window: Option<&mut Window>, cx: &mut App) {
@@ -205,7 +225,9 @@ fn apply(resolved: loader::Resolved, window: Option<&mut Window>, cx: &mut App) 
         background: effective.background,
         content_font_size: effective.content_font_size,
         content_line_height: effective.content_line_height,
-        content_opacity: preferences.content_opacity.unwrap_or(1.),
+        content_opacity: preferences
+            .content_opacity
+            .unwrap_or(gds::design::CONTENT_OPACITY),
         composer_enter_behavior: preferences.composer_enter_behavior,
         default_agent: preferences.default_agent.clone(),
         confirm_session_delete: preferences.confirm_session_delete.unwrap_or(true),
@@ -236,6 +258,7 @@ pub(super) fn window_root(
     window: &mut Window,
     cx: &mut Context<Root>,
 ) -> Root {
+    gds::theme::Observer::attach(window, cx);
     cx.observe_global::<Appearance>(|root, cx| {
         root.style().text = font_style(cx).text;
         cx.notify();

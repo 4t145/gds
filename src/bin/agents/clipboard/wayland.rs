@@ -2,10 +2,8 @@
 
 use super::Contents;
 use gpui_kit::{Image, ImageFormat};
-use nix::poll::{PollFd, PollFlags, poll};
 use std::{
-    io::{self, Read},
-    os::fd::AsFd,
+    io,
     time::{Duration, Instant},
 };
 use strum::IntoEnumIterator;
@@ -93,35 +91,21 @@ fn file_paths(text: &str) -> Vec<std::path::PathBuf> {
 }
 
 fn read_mime(mime: &str) -> Result<Vec<u8>, Error> {
-    let (mut pipe, _) = paste::get_contents(
+    let (pipe, _) = paste::get_contents(
         ClipboardType::Regular,
         Seat::Unspecified,
         MimeType::Specific(mime),
     )?;
-    let deadline = Instant::now() + READ_TIMEOUT;
-    let mut bytes = Vec::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let timeout = remaining.as_millis().min(u16::MAX as u128) as u16;
-        if timeout == 0
-            || poll(&mut [PollFd::new(pipe.as_fd(), PollFlags::POLLIN)], timeout)
-                .map_err(io::Error::from)?
-                == 0
-        {
-            return Err(
-                io::Error::new(io::ErrorKind::TimedOut, "clipboard source timed out").into(),
-            );
-        }
-        let count = pipe.read(&mut buffer)?;
-        if count == 0 {
-            return Ok(bytes);
-        }
-        if bytes.len() + count > MAX_BYTES {
-            return Err(Error::TooLarge);
-        }
-        bytes.extend_from_slice(&buffer[..count]);
-    }
+    gds::desktop::clipboard::read_pipe(pipe, Instant::now() + READ_TIMEOUT, MAX_BYTES).map_err(
+        |error| match error {
+            gds::desktop::clipboard::Error::Io(error) => Error::Io(error),
+            gds::desktop::clipboard::Error::Timeout => Error::Io(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "clipboard source timed out",
+            )),
+            gds::desktop::clipboard::Error::TooLarge => Error::TooLarge,
+        },
+    )
 }
 
 #[cfg(feature = "gui-tests")]

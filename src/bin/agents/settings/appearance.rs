@@ -322,8 +322,8 @@ impl AppearancePage {
                     Ok(()) => crate::i18n::tr!("settings-applied").into(),
                     Err(error)
                         if matches!(
-                            error.downcast_ref::<bas::config::Error>(),
-                            Some(bas::config::Error::Conflict { .. })
+                            error.downcast_ref::<crate::configuration::Error>(),
+                            Some(crate::configuration::Error::Conflict { .. })
                         ) =>
                     {
                         crate::i18n::tr!("settings-conflict").into()

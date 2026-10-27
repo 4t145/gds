@@ -2,12 +2,14 @@
 
 mod dms;
 mod hot_reload;
+mod observer;
 mod palette;
 mod qt;
 #[cfg(test)]
 mod tests;
 
 pub use hot_reload::HotReload;
+pub use observer::{Change, Observer};
 
 use std::{fs, path::PathBuf};
 
@@ -84,8 +86,8 @@ impl Default for Appearance {
         Self {
             source: Source::default(),
             mode: ModePreference::default(),
-            content_opacity: 1.0,
-            sidebar_opacity: 1.0,
+            content_opacity: crate::design::CONTENT_OPACITY,
+            sidebar_opacity: crate::design::SIDEBAR_OPACITY,
         }
     }
 }
@@ -173,6 +175,14 @@ pub struct Prepared {
 }
 
 impl Prepared {
+    /// Files that can change this prepared appearance, including palette indirection.
+    pub fn source_paths(&self) -> Vec<PathBuf> {
+        let mut paths = self.appearance.source_paths();
+        paths.extend(self.loaded.source_path.clone());
+        paths.sort();
+        paths.dedup();
+        paths
+    }
     /// Install the prepared palette without reading source files again.
     ///
     /// # Errors
@@ -301,6 +311,24 @@ struct Loaded {
 }
 
 impl Appearance {
+    /// Desktop source pointers; a prepared palette adds its resolved palette file.
+    pub fn source_paths(&self) -> Vec<PathBuf> {
+        match self.source {
+            Source::Builtin => Vec::new(),
+            Source::Dms => dms_colors_path().into_iter().collect(),
+            Source::Qt5ct | Source::Qt6ct => {
+                let name = if self.source == Source::Qt6ct {
+                    "qt6ct"
+                } else {
+                    "qt5ct"
+                };
+                BaseDirs::new()
+                    .map(|dirs| dirs.config_dir().join(name).join(format!("{name}.conf")))
+                    .into_iter()
+                    .collect()
+            }
+        }
+    }
     /// Read and validate one complete palette for a known platform appearance.
     ///
     /// # Errors

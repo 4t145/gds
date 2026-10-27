@@ -7,7 +7,7 @@ pub(super) const COMPOSER_TOOLBAR_HEIGHT: f32 = 24.;
 pub(super) const COMPOSER_BOTTOM_PADDING: f32 = 2.;
 pub(super) const COMPOSER_CONTROL_INSET: f32 = 4.;
 
-pub(super) use bas::config::appearance::ComposerEnterBehavior as Mode;
+pub(super) use crate::configuration::appearance::ComposerEnterBehavior as Mode;
 
 actions!(bas, [SendComposer, ExpandMessageEditor]);
 

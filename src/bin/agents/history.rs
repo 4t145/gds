@@ -1,4 +1,4 @@
-//! Independently owned Agent history browser. Discovery never creates or prompts a session.
+//! Agent history content with its own connection. Discovery never creates or prompts a session.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
@@ -23,6 +23,7 @@ mod view;
 pub(crate) mod window;
 
 const MAX_DISCOVERIES: usize = 2;
+pub(crate) const SIDEBAR_WIDTH: f32 = gds::ui::SIDEBAR_WIDTH;
 pub(crate) const ICON: gpui_kit::assets::IconName = gpui_kit::assets::IconName::MessagesSquare;
 
 pub(crate) type OpenSession = Rc<dyn Fn(SessionSnapshot, &mut App) -> bool>;
@@ -87,7 +88,6 @@ pub(crate) struct Browser {
     open_session: OpenSession,
     _search_subscription: Subscription,
     _events: Task<()>,
-    _clock: Task<()>,
 }
 
 impl Browser {
@@ -105,16 +105,6 @@ impl Browser {
         let events = cx.spawn(async move |view, cx| {
             while let Some(update) = events.recv().await {
                 if view.update(cx, |this, cx| this.update(update, cx)).is_err() {
-                    break;
-                }
-            }
-        });
-        let clock = cx.spawn(async move |view, cx| {
-            loop {
-                cx.background_executor()
-                    .timer(crate::ui::time::REFRESH_INTERVAL)
-                    .await;
-                if view.update(cx, |_, cx| cx.notify()).is_err() {
                     break;
                 }
             }
@@ -142,7 +132,6 @@ impl Browser {
             open_session: request.open_session,
             _search_subscription: subscription,
             _events: events,
-            _clock: clock,
         };
         browser.set_agents(request.agents);
         if let Some(cwd) = &browser.cwd {

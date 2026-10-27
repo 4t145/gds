@@ -47,7 +47,7 @@ fn menu_rows_keep_full_labels_inside_fixed_width(cx: &mut gpui_kit::TestAppConte
         px, size,
         test::TestWindowExt,
     };
-    let profile = bas::config::ConnectionProfile {
+    let profile = crate::configuration::ConnectionProfile {
         id: "long".into(),
         name: "A very long saved name that must truncate without pushing the check out".into(),
         target: Target::Unix(

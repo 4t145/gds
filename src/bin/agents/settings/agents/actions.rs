@@ -32,7 +32,7 @@ impl Agents {
                 flex_shrink_0;
                 group: $(group.clone());
                 accessibility_label: hint;
-                tooltip: $(format!("{hint}\n{}", self.check_detail(spec)));
+                tooltip: $(format!("{hint}\n{}", self.check_detail(spec, cx)));
                 loading: busy;
                 disabled: $(busy || self.logging_out(spec) || self.dirty(cx) || !self.registry.editable());
                 on_click: $(cx.listener(move |this, _, _, cx| this.start_check(expected.clone(), true, cx)));

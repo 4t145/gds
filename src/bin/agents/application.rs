@@ -1,9 +1,9 @@
-//! Application-only windows; these never send commands to bas.
+//! Application pages and confirmations; these never send commands to bas.
 
 use gds_uim::el;
 use gpui_kit::{
     App, AppContext, Bounds, ClickEvent, Context, Global, KeyBinding, Render, TestSupportExt,
-    Window, WindowBounds, WindowDecorations, WindowHandle, WindowKind, WindowOptions, actions,
+    Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     component::{ActiveTheme, Root},
     div,
     prelude::*,
@@ -33,6 +33,8 @@ pub(crate) fn init(cx: &mut App) {
     }
     cx.set_global(ActionsRegistered);
     gds::actions::register(cx);
+    crate::connections::bind_page_keys(cx);
+    gds::time::apply(gds::time::Format::Relative, cx);
     gds::ui::keytips::install(cx);
     crate::diagnostics::window::init(cx);
     let (settings, quit) = if cfg!(target_os = "macos") {
@@ -142,7 +144,21 @@ pub(crate) fn open_releases(cx: &mut App) {
 /// # Errors
 /// Returns a platform error if the About window cannot be created.
 pub(crate) fn open_about(cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
+    if let Some((handle, host)) = crate::connections::page_host(cx) {
+        handle.update(cx, |_, window, cx| {
+            host.update(cx, |host, cx| host.show_about(window, cx))
+        })?;
+        return Ok(handle);
+    }
     open_host(Host::new(InfoWindow::About), cx)
+}
+
+pub(crate) struct About;
+
+impl Render for About {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Host::new(InfoWindow::About).about(true).into_any_element()
+    }
 }
 
 /// # Errors
@@ -207,7 +223,6 @@ fn open_host(host: Host, cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
                 cx,
             ))),
             window_min_size: Some(size(px(WIDTH), px(height))),
-            window_decorations: Some(WindowDecorations::Client),
             window_background: cx.global::<theme::Appearance>().background,
             app_id: Some("io.github.fourt145.GdsAgents".into()),
             ..TitleBar::window_options()
@@ -347,7 +362,7 @@ impl Host {
         }
     }
 
-    fn about(&self) -> impl IntoElement {
+    fn about(&self, embedded: bool) -> impl IntoElement {
         let version = crate::i18n::tr!("app-version", version = env!("CARGO_PKG_VERSION"));
         let build_tag = crate::i18n::tr!("app-build-tag", tag = env!("CARGO_PKG_VERSION"));
         el! {
@@ -400,10 +415,10 @@ impl Host {
                     label: $(crate::i18n::tr!("app-releases"));
                     on_click: $(|_, _, cx| open_releases(cx));
                 },
-                ("about-close").crate::ui::action_button {
+                ..$((!embedded).then(|| el! { ("about-close").crate::ui::action_button {
                     label: $(crate::i18n::tr!("action-close"));
                     on_click: Self::on_close;
-                },
+                }})),
             ]
         }
     }
@@ -449,7 +464,7 @@ impl Render for Host {
             InfoWindow::Confirmation => "confirmation-window",
         };
         let content = match self.kind {
-            InfoWindow::About => self.about().into_any_element(),
+            InfoWindow::About => self.about(false).into_any_element(),
             InfoWindow::Quit => self.quit().into_any_element(),
             InfoWindow::Confirmation => self.message(cx).into_any_element(),
         };

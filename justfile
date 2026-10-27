@@ -7,42 +7,78 @@ develop := "nix develop --impure --expr 'import ./shell.nix'"
 default:
     @just --list
 
-# 编译并启动开发版，可传目录或应用参数。
-dev *args:
-    {{develop}} --command cargo run --bin gds-files -- "$@"
-
-# 编译并启动 Agents，可传 --server、--cwd 或 --compact。
-dev-agents *args:
-    {{develop}} --command cargo run --features agents --bin gds-agents -- "$@"
+# 编译并启动指定应用：just dev files / just dev agents，可继续传应用参数。
+dev app *args:
+    @just _cargo run "$@"
 
 # 进入完整的 Nix 开发环境。
 shell:
-    {{develop}}
+    {{ develop }}
 
-# 构建开发版二进制。
-build:
-    {{develop}} --command cargo build --bin gds-files
+# 构建整个套件，或指定 files / agents。
+build app="all":
+    @just _cargo build "$@"
 
-# 构建 Agents 开发版。
-build-agents:
-    {{develop}} --command cargo build --features agents --bin gds-agents
+# 构建整个套件或指定应用的发布版。
+release app="all":
+    @just _cargo build "$@" --release --locked
 
-# 构建性能优先、剥离符号的发布版二进制。
-release:
-    {{develop}} --command cargo build --release --locked --bin gds-files
+# 安装整个套件，或指定 files / agents 到当前用户的 Nix profile。
+install app="all":
+    nix profile install {{ if app == "all" { ".#gds" } else if app == "files" { ".#gds-files" } else if app == "agents" { ".#gds-agents" } else { error("未知应用：" + app + "；可选 all、files、agents") } }}
+
+# 使用 target/debug 缓存构建，并安装本机开发版入口。
+install-dev app="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _cargo build "$1" --locked
+    runtime_profile="${XDG_STATE_HOME:-$HOME/.local/state}/gds/development/environment"
+    mkdir -p "$(dirname "$runtime_profile")"
+    {{ develop }} --profile "$runtime_profile" --command python3 scripts/install-dev.py "$1" "$runtime_profile"
+
+# 移除开发版入口，恢复此前的命令和桌面入口。
+uninstall-dev app="all":
+    {{ develop }} --command python3 scripts/install-dev.py --remove "$1"
 
 # 检查全部 Rust 目标。
 check:
-    {{develop}} --command cargo check --workspace --features agents --all-targets
+    {{ develop }} --command cargo check --workspace --features agents --all-targets
 
 # 运行测试，可传测试名称等 Cargo 参数。
 test *args:
-    {{develop}} --command cargo test --workspace --features agents "$@"
+    {{ develop }} --command cargo test --workspace --features agents "$@"
 
 # 格式化项目代码。
 fmt:
-    {{develop}} --command cargo fmt --all
+    {{ develop }} --command cargo fmt --all
 
 # 只检查格式，不修改文件。
 fmt-check:
-    {{develop}} --command cargo fmt --all --check
+    {{ develop }} --command cargo fmt --all --check
+
+[private]
+_cargo command app *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command="$1"
+    app="$2"
+    shift 2
+    case "$app" in
+        all)
+            if [ "$command" = run ]; then
+                printf '%s\n' '启动时请指定应用：just dev files / just dev agents' >&2
+                exit 2
+            fi
+            targets=(--bins --features agents)
+            ;;
+        files) targets=(--bin gds-files) ;;
+        agents) targets=(--bin gds-agents --features agents) ;;
+        *)
+            printf '未知应用：%s；可选 files、agents\n' "$app" >&2
+            exit 2
+            ;;
+    esac
+    if [ "$command" = run ]; then
+        targets+=(--)
+    fi
+    {{ develop }} --command cargo "$command" "${targets[@]}" "$@"

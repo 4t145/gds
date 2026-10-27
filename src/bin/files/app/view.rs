@@ -114,13 +114,13 @@ impl Render for Browser {
         if self.picker.is_some() && !self.settings_open {
             context.add(picker::PICKER_CONTEXT);
         }
-        let notification_overlay = notifications::overlay(cx);
+        let notification_overlay = notifications::overlay_for(window, cx);
         let selection_menu = self.render_selection_menu(window);
         el! {
             .div {
                 # "gds-files"; key_context: $context; track_focus: $&self.root_focus;
                 size_full; flex; flex_col; overflow_hidden;
-                text_color: $cx.theme().foreground; text_sm;
+                text_color: $cx.theme().foreground; text_size: ui::SMALL;
                 on_action: (cx, Self::on_application_menu).Context::listener;
                 on_action: (cx, Self::on_focus_locations).Context::listener;
                 on_action: (cx, Self::on_focus_volumes).Context::listener;

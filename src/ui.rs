@@ -5,12 +5,12 @@ use std::{rc::Rc, time::Duration};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, Selectable, Sizable};
 use gpui_kit::{prelude::*, *};
 
 use crate::{actions::Command, theme, typography};
 
+pub mod button;
 pub mod capacity;
 pub mod dialog;
 pub mod keytips;
@@ -18,20 +18,24 @@ pub mod list;
 pub mod page;
 pub mod region;
 pub mod settings;
+mod shortcut;
 pub mod split;
+pub mod tooltip;
+pub mod window;
 pub use dialog::DialogActions;
 pub use list::ListSurface;
 pub use page::ContentPage;
+use shortcut::Hint;
+pub use shortcut::{
+    HeldModifier, PrefixTarget, Shortcut, ShortcutBadge, command_tooltip, shortcut_tooltip,
+};
 
-pub const SIDEBAR_WIDTH: f32 = 222.0;
-pub const COLLAPSED_SIDEBAR_WIDTH: f32 = 58.0;
-pub const TOOLBAR_HEIGHT: f32 = 52.0;
-pub const FOOTER_HEIGHT: f32 = 36.0;
-pub const SIDEBAR_PADDING: f32 = 10.0;
-pub const SIDEBAR_ITEM_HEIGHT: f32 = 38.0;
-pub const SIDEBAR_ICON_SIZE: f32 = 18.0;
+pub use crate::design::{
+    COLLAPSED_SIDEBAR_WIDTH, FOOTER_HEIGHT, ICON_BUTTON_SIZE, SIDEBAR_ICON_SIZE,
+    SIDEBAR_ITEM_HEIGHT, SIDEBAR_PADDING, SIDEBAR_WIDTH, TOOLBAR_HEIGHT,
+};
+pub const SMALL: Rems = Rems(crate::design::UI_TEXT_SCALE);
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(400);
-pub const ICON_BUTTON_SIZE: f32 = 32.0;
 const ITEM_GAP: f32 = 8.0;
 const ITEM_RADIUS: f32 = 6.0;
 const KEY_HEIGHT: f32 = 22.0;
@@ -66,311 +70,6 @@ impl DataListStyle {
     pub const SCROLLBAR_LANE: f32 = 16.0;
 }
 
-/// An action together with the key context whose binding applies to it.
-#[derive(Clone)]
-pub struct Shortcut {
-    action: Rc<dyn Action>,
-    context: Option<&'static str>,
-    prefix: Option<PrefixTarget>,
-}
-
-/// A shortcut's entry action when it is reached through a keyboard prefix.
-#[derive(Clone)]
-pub struct PrefixTarget {
-    entry: Rc<Shortcut>,
-}
-
-impl PrefixTarget {
-    pub fn entry(&self) -> &Shortcut {
-        &self.entry
-    }
-}
-impl PartialEq for PrefixTarget {
-    fn eq(&self, other: &Self) -> bool {
-        self.entry.same_scope(&other.entry)
-    }
-}
-impl Eq for PrefixTarget {}
-
-impl Shortcut {
-    pub fn new(action: Box<dyn Action>, context: Option<&'static str>) -> Self {
-        Self {
-            action: Rc::from(action),
-            context,
-            prefix: None,
-        }
-    }
-
-    pub fn context(&self) -> Option<&'static str> {
-        self.context
-    }
-
-    pub fn action(&self) -> &dyn Action {
-        &*self.action
-    }
-
-    /// Mark this as a page key that only runs behind the prefix `entry` arms.
-    pub fn via_prefix(mut self, entry: impl Into<Shortcut>) -> Self {
-        self.prefix = Some(PrefixTarget {
-            entry: Rc::new(entry.into()),
-        });
-        self
-    }
-
-    /// The prefix this key belongs behind, for a page key; `None` for an
-    /// ordinary shortcut that runs from the plain layer itself.
-    pub fn prefix(&self) -> Option<PrefixTarget> {
-        self.prefix.clone()
-    }
-
-    /// Whether both shortcuts name the same action in the same scope, so a
-    /// cached presentation does not have to be rebuilt.
-    pub fn same_scope(&self, other: &Self) -> bool {
-        self.context == other.context
-            && self.prefix == other.prefix
-            && self.action.partial_eq(&*other.action)
-    }
-
-    /// The highest-precedence binding currently in effect for this action.
-    pub fn binding(&self, window: &Window) -> Option<KeyBinding> {
-        let context = self
-            .context
-            .map(|value| KeyContext::parse(value).expect("bundled action contexts are valid"))
-            .unwrap_or_default();
-        window.highest_precedence_binding_for_action_in_context(&*self.action, context)
-    }
-}
-
-impl From<Command> for Shortcut {
-    fn from(command: Command) -> Self {
-        Self::new(command.action(), command.context())
-    }
-}
-
-/// The modifier group a press reveals hint labels for.
-///
-/// The two groups never mix. Ctrl+Alt (what AltGr reports) selects neither, so
-/// such a press shows no labels instead of lighting the other group's keys.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum HeldModifier {
-    Ctrl,
-    Alt,
-}
-
-impl HeldModifier {
-    /// The group the current modifier state asks for, if any.
-    pub fn from_modifiers(modifiers: Modifiers) -> Option<Self> {
-        if modifiers.platform {
-            return None;
-        }
-        match (modifiers.control, modifiers.alt) {
-            (true, false) => Some(Self::Ctrl),
-            (false, true) => Some(Self::Alt),
-            _ => None,
-        }
-    }
-
-    /// Whether a stroke carries this group's modifier.
-    pub fn matches(self, modifiers: Modifiers) -> bool {
-        match self {
-            Self::Ctrl => modifiers.control,
-            Self::Alt => modifiers.alt,
-        }
-    }
-}
-
-#[derive(IntoElement)]
-pub struct ShortcutBadge {
-    source: BadgeSource,
-}
-
-/// Where a badge's keys come from: a control's own shortcut, resolved in its
-/// declared scope, or a binding already resolved for the current context.
-enum BadgeSource {
-    Shortcut(Shortcut),
-    Binding(KeyBinding),
-}
-
-impl ShortcutBadge {
-    pub fn new(command: impl Into<Shortcut>) -> Self {
-        Self::bound(command.into())
-    }
-
-    /// A badge for any action, resolved through its own key context.
-    pub fn bound(shortcut: Shortcut) -> Self {
-        Self {
-            source: BadgeSource::Shortcut(shortcut),
-        }
-    }
-
-    /// A badge for a binding that is already known to apply right now.
-    pub fn binding(binding: KeyBinding) -> Self {
-        Self {
-            source: BadgeSource::Binding(binding),
-        }
-    }
-
-    fn labels(&self, window: &Window) -> Vec<SharedString> {
-        let binding = match &self.source {
-            BadgeSource::Shortcut(shortcut) => shortcut.binding(window),
-            BadgeSource::Binding(binding) => Some(binding.clone()),
-        };
-        key_labels(binding.as_ref())
-    }
-
-    /// The whole combination as one compact label, such as `R` or `Shift+Tab`,
-    /// with the modifier the user is already holding left out because the press
-    /// itself shows it.
-    ///
-    /// It is spelled from [`key_labels`], the same names the keycaps use, so the
-    /// two presentations cannot drift apart.
-    pub(crate) fn path_label(bindings: &[KeyBinding], held: HeldModifier) -> Option<SharedString> {
-        let labels = bindings
-            .iter()
-            .flat_map(|binding| key_labels_omitting(Some(binding), Some(held)))
-            .collect::<Vec<_>>();
-        if labels.is_empty() {
-            return None;
-        }
-        let parts = labels.iter().map(AsRef::<str>::as_ref).collect::<Vec<_>>();
-        Some(parts.join("+").into())
-    }
-}
-
-fn key_labels(binding: Option<&KeyBinding>) -> Vec<SharedString> {
-    key_labels_omitting(binding, None)
-}
-
-/// The key names of a binding's first stroke, minus the prefix of `held`.
-fn key_labels_omitting(
-    binding: Option<&KeyBinding>,
-    held: Option<HeldModifier>,
-) -> Vec<SharedString> {
-    let mut labels = Vec::new();
-    if let Some(stroke) = binding
-        .and_then(|binding| binding.keystrokes().first())
-        .map(AsKeystroke::as_keystroke)
-    {
-        if stroke.modifiers.control && held != Some(HeldModifier::Ctrl) {
-            labels.push("Ctrl".into());
-        }
-        if stroke.modifiers.alt && held != Some(HeldModifier::Alt) {
-            labels.push("Alt".into());
-        }
-        if stroke.modifiers.shift {
-            labels.push("Shift".into());
-        }
-        if stroke.modifiers.platform {
-            labels.push("Super".into());
-        }
-        labels.push(match stroke.key.as_str() {
-            "left" => "←".into(),
-            "right" => "→".into(),
-            "up" => "↑".into(),
-            "down" => "↓".into(),
-            "enter" => "Enter".into(),
-            "escape" => "Esc".into(),
-            "tab" => "Tab".into(),
-            key => key.to_uppercase().into(),
-        });
-    }
-    labels
-}
-
-impl RenderOnce for ShortcutBadge {
-    fn render(self, window: &mut Window, _: &mut App) -> impl IntoElement {
-        let keys = self.labels(window).into_iter().map(Keycap::new);
-        el! { .div { flex; items_center; gap: KEY_GAP.px } [..keys] }
-    }
-}
-
-#[derive(IntoElement)]
-struct Keycap {
-    label: SharedString,
-}
-
-impl Keycap {
-    fn new(label: SharedString) -> Self {
-        Self { label }
-    }
-}
-
-impl RenderOnce for Keycap {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let label = self.label;
-        el! {
-            .div {
-                flex; items_center; justify_center;
-                h: KEY_HEIGHT.px; min_w: KEY_HEIGHT.px; px: KEY_PADDING.px;
-                rounded: KEY_GAP.px; border_1;
-                border_color: $cx.theme().border;
-                bg: $cx.theme().secondary; text_color: $cx.theme().muted_foreground;
-                text_size: $(typography::scaled(KEY_TEXT_SIZE, cx));
-            } [label]
-        }
-    }
-}
-
-#[derive(Clone)]
-struct Hint {
-    label: SharedString,
-    shortcut: Option<Shortcut>,
-}
-
-impl Hint {
-    fn command(label: SharedString, command: Option<Shortcut>) -> Self {
-        Self {
-            label,
-            shortcut: command,
-        }
-    }
-
-    fn shortcut(label: SharedString, shortcut: Shortcut) -> Self {
-        Self {
-            label,
-            shortcut: Some(shortcut),
-        }
-    }
-
-    fn builder(self) -> impl Fn(&mut Window, &mut App) -> AnyView {
-        move |window, cx| {
-            let hint = self.clone();
-            Tooltip::element(move |_, _| hint.content()).build(window, cx)
-        }
-    }
-
-    fn content(&self) -> Div {
-        let badge = self.shortcut.clone().map(ShortcutBadge::bound);
-        el! {
-            .div { flex; items_center; gap: HINT_GAP.px } [$(self.label.clone()), ..badge]
-        }
-    }
-}
-
-/// A tooltip holding a control's short label and the key that runs it.
-///
-/// The badge reads the highest-precedence binding like every other presentation
-/// of a command, so a control whose `Command` it names cannot show another key
-/// than the one a press runs.
-pub fn command_tooltip(
-    label: impl Into<SharedString>,
-    command: impl Into<Shortcut>,
-) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    Hint::command(label.into(), Some(command.into())).builder()
-}
-
-/// A tooltip holding a control's short label and an already-resolved binding.
-///
-/// It serves controls whose key is not one of the workspace [`Command`]s, such
-/// as the picker's own decisions, while keeping the same presentation as every
-/// other keyed control.
-pub fn shortcut_tooltip(
-    label: impl Into<SharedString>,
-    shortcut: Shortcut,
-) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    Hint::shortcut(label.into(), shortcut).builder()
-}
-
 #[derive(IntoElement)]
 pub struct IconButton {
     id: ElementId,
@@ -397,7 +96,9 @@ impl IconButton {
     }
 
     pub fn icon(mut self, icon: IconName) -> Self {
-        self.button = self.button.icon(Icon::new(icon));
+        self.button = self
+            .button
+            .icon(Icon::new(icon).size(px(crate::design::ICON_SIZE)));
         self
     }
 
@@ -498,7 +199,8 @@ impl NavItem {
     pub fn new(id: impl Into<ElementId>, icon: IconName, label: impl Into<SharedString>) -> Self {
         let id = id.into();
         let label = label.into();
-        let button = el! { (~id).Button::new { ghost; accessibility_label: ~label } };
+        let button =
+            el! { (~id).Button::new { ghost; text_size: SMALL; accessibility_label: ~label } };
         Self {
             id,
             button,
@@ -646,6 +348,33 @@ impl RenderOnce for NavItem {
     }
 }
 
+/// A fixed trailing slot that replaces a passive status with an action on row
+/// hover. Neither presentation changes the space available to the row's title.
+pub fn hover_action(
+    group: SharedString,
+    status: AnyElement,
+    action: Option<AnyElement>,
+) -> AnyElement {
+    let has_action = action.is_some();
+    el! {
+        .div { relative; flex_shrink_0; size: ICON_BUTTON_SIZE.px } [
+            .div {
+                size_full; flex; items_center; justify_center;
+                when: has_action, {
+                    group_hover: $(group.clone()), $(gds_uim::m! { invisible; });
+                };
+            } [status],
+            @if (let Some(action) = action)
+                .div {
+                    absolute; inset_0; size_full; invisible;
+                    group_hover: group, $(gds_uim::m! { visible; });
+                } [action],
+            @end,
+        ]
+    }
+    .into_any_element()
+}
+
 /// A row's own icon, marked with a corner badge when the row is pinned.
 ///
 /// The icon keeps its identity and its shared size whether or not the row is
@@ -684,7 +413,7 @@ pub fn with_pin(icon: impl IntoElement, pinned: bool, cx: &App) -> AnyElement {
 /// sibling of the menu button and of the toolbar controls, never a wrapper, so
 /// pressing those still only clicks them.
 #[derive(IntoElement)]
-struct WindowDragArea;
+pub struct WindowDragArea;
 
 impl RenderOnce for WindowDragArea {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
@@ -699,19 +428,27 @@ impl RenderOnce for WindowDragArea {
 
 /// One shared column width governs toolbar, workspace and footer geometry.
 pub struct Frame {
-    sidebar_width: f32,
+    sidebar_width: Option<f32>,
 }
 
 impl Frame {
     pub fn new(sidebar_width: f32) -> Self {
-        Self { sidebar_width }
+        Self {
+            sidebar_width: Some(sidebar_width),
+        }
     }
 
-    fn vertical_divider(&self, cx: &App) -> Div {
-        let boundary = self.sidebar_width;
-        el! {
-            .div { absolute; left: boundary.px; top_0; bottom_0; w: DIVIDER_WIDTH.px; bg: $(cx.theme().border) }
+    /// A full-width page whose toolbar has no sidebar column or divider.
+    pub fn without_sidebar() -> Self {
+        Self {
+            sidebar_width: None,
         }
+    }
+
+    fn vertical_divider(&self, cx: &App) -> Option<Div> {
+        self.sidebar_width.map(|boundary| el! {
+            .div { absolute; left: boundary.px; top_0; bottom_0; w: DIVIDER_WIDTH.px; bg: $(cx.theme().border) }
+        })
     }
 
     /// The toolbar's empty stretch after its leading control, when the column
@@ -721,7 +458,7 @@ impl Frame {
     /// toolbar's forms (the menu and the secondary page's way back), so the
     /// space beside it is the column width minus the control and its padding.
     fn window_drag_area(&self) -> Option<WindowDragArea> {
-        let free = self.sidebar_width - 2. * MENU_PADDING - ICON_BUTTON_SIZE;
+        let free = self.sidebar_width? - 2. * MENU_PADDING - ICON_BUTTON_SIZE;
         (free >= MIN_DRAG_WIDTH).then_some(WindowDragArea)
     }
 
@@ -731,23 +468,45 @@ impl Frame {
     /// The empty stretch beside the menu moves the window; the menu and the
     /// controls stay ordinary click targets.
     pub fn toolbar(&self, menu: AnyElement, controls: AnyElement, cx: &App) -> Div {
-        let width = self.sidebar_width;
+        self.toolbar_with_window_controls(menu, controls, window::WindowControls::new(), cx)
+    }
+
+    /// Applications supply lifecycle callbacks; Frame owns the placement so a
+    /// full-width title or navigation row cannot displace the window controls.
+    pub fn toolbar_with_window_controls(
+        &self,
+        menu: AnyElement,
+        controls: AnyElement,
+        window_controls: window::WindowControls,
+        cx: &App,
+    ) -> Div {
+        let width = self
+            .sidebar_width
+            .unwrap_or(2. * MENU_PADDING + ICON_BUTTON_SIZE);
+        let leading_background = if self.sidebar_width.is_some() {
+            theme::sidebar_background(cx)
+        } else {
+            theme::content_background(cx)
+        };
         let divider = self.vertical_divider(cx);
         let drag = self.window_drag_area();
         el! {
             .div { relative; flex; flex_shrink_0; w_full; h: TOOLBAR_HEIGHT.px } [
                 .div {
                     w: width.px; h_full; flex_shrink_0; flex; items_center;
-                    px: MENU_PADDING.px; bg: $(theme::sidebar_background(cx));
+                    px: MENU_PADDING.px; bg: leading_background;
                 } [
                     menu,
                     @if (let Some(drag) = drag) $(drag), @end,
                 ],
                 .div {
                     flex_1; min_w_0; h_full; flex; items_center;
-                    px: SIDEBAR_PADDING.px; bg: $(theme::content_background(cx));
-                } [controls],
-                divider,
+                    px: SIDEBAR_PADDING.px; gap_1; bg: $(theme::content_background(cx));
+                } [
+                    .div { flex_1; min_w_0; h_full; flex; items_center; overflow_hidden } [controls],
+                    window_controls,
+                ],
+                ..divider,
             ]
         }
     }
@@ -757,9 +516,11 @@ impl Frame {
         let divider = self.vertical_divider(cx);
         el! {
             .div { relative; flex; flex_1; min_h_0; w_full } [
-                .div { w: width.px; h_full; flex_shrink_0; bg: $(theme::sidebar_background(cx)) } [sidebar],
+                @if (let Some(width) = width)
+                    .div { w: width.px; h_full; flex_shrink_0; bg: $(theme::sidebar_background(cx)) } [sidebar],
+                @end,
                 .div { flex_1; min_w_0; h_full; bg: $(theme::content_background(cx)) } [content],
-                divider,
+                ..divider,
             ]
         }
     }
@@ -774,10 +535,13 @@ impl Frame {
         cx: &App,
     ) -> Div {
         let width = self.sidebar_width;
+        let boundary = width.unwrap_or(0.);
         let divider = self.vertical_divider(cx);
         el! {
             .div { relative; flex; w_full; h: FOOTER_HEIGHT.px; flex_shrink_0 } [
-                .div { w: width.px; h_full; flex_shrink_0; bg: $(theme::sidebar_background(cx)) } [sidebar_status],
+                @if (let Some(width) = width)
+                    .div { w: width.px; h_full; flex_shrink_0; bg: $(theme::sidebar_background(cx)) } [sidebar_status],
+                @end,
                 .div {
                     flex_1; min_w_0; h_full; flex; items_center; gap: ITEM_GAP.px;
                     bg: $(theme::content_background(cx)); px: STATUS_PADDING.px;
@@ -785,8 +549,8 @@ impl Frame {
                     .div { flex_1; min_w_0; flex; items_center; gap: ITEM_GAP.px } [status],
                     controls,
                 ],
-                divider,
-                .div { absolute; left: width.px; right_0; top_0; h: DIVIDER_WIDTH.px; bg: $(cx.theme().border) },
+                ..divider,
+                .div { absolute; left: boundary.px; right_0; top_0; h: DIVIDER_WIDTH.px; bg: $(cx.theme().border) },
             ]
         }
     }

@@ -125,7 +125,7 @@ pub(crate) fn settings_entries() -> Vec<(&'static str, gds::ui::Shortcut)> {
 }
 
 pub(super) fn hint(label: &str, action: &dyn Action, window: &Window) -> String {
-    crate::ui::shortcut::hint(label, action, "BasWorkspace", window)
+    gds::ui::Shortcut::new(action.boxed_clone(), Some("BasWorkspace")).hint(label, window)
 }
 
 pub(super) fn tooltip(

@@ -2,11 +2,13 @@
 
 use crate::workspace::*;
 
+mod controls;
 mod directories;
 pub(super) mod draft_row;
 mod folders;
 pub(super) mod groups;
 pub(super) mod history;
+mod rail;
 pub(super) mod removal;
 pub(super) mod restore;
 mod sidebar;
@@ -22,6 +24,31 @@ pub(super) enum View {
 }
 
 impl View {
+    pub(super) const ALL: [Self; 4] = [
+        Self::Workspaces,
+        Self::Bookmarks,
+        Self::History,
+        Self::Archived,
+    ];
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Workspaces => crate::i18n::tr!("sidebar-workspaces"),
+            Self::Bookmarks => crate::i18n::tr!("sidebar-bookmarks"),
+            Self::History => crate::i18n::tr!("sidebar-history"),
+            Self::Archived => crate::i18n::tr!("sidebar-archived"),
+        }
+    }
+
+    pub(super) fn icon(self) -> IconName {
+        match self {
+            Self::Workspaces => IconName::Folder,
+            Self::Bookmarks => IconName::Bookmark,
+            Self::History => IconName::Clock,
+            Self::Archived => IconName::Archive,
+        }
+    }
+
     pub(super) fn includes(self, session: &SessionMeta, bookmarks: &HashSet<SessionId>) -> bool {
         match self {
             Self::Bookmarks => bookmarks.contains(&session.id),

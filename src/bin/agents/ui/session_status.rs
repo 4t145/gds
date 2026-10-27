@@ -47,7 +47,7 @@ impl Status {
         session.status().into()
     }
 
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Starting => crate::i18n::tr!("status-starting"),
             Self::Working => crate::i18n::tr!("status-running"),
@@ -142,6 +142,29 @@ impl Status {
             }
         }
         .into_any_element()
+    }
+
+    /// The same state vocabulary in an avatar's corner, without a full action slot.
+    pub(crate) fn badge(self, id: impl Into<SharedString>, cx: &App) -> Option<AnyElement> {
+        if self == Self::Idle {
+            return None;
+        }
+        let id = id.into();
+        Some(
+            gds_uim::el! {
+                .div {
+                    id: $(id.clone());
+                    test_support;
+                    role: gpui_kit::Role::Status;
+                    aria_label: $(self.label());
+                    size: STATUS_SIZE.px;
+                    flex;
+                    items_center;
+                    justify_center;
+                } [$(self.indicator(format!("{id}-indicator").into(), cx))]
+            }
+            .into_any_element(),
+        )
     }
 }
 
