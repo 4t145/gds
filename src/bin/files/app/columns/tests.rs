@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use gds::settings::columns::{Column, Layout};
+use crate::settings::columns::{Column, Layout};
 
 use super::{Editor, Scope, sort_column, sort_for, sort_key};
 use crate::{

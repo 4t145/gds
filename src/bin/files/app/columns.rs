@@ -5,20 +5,17 @@
 //! clears this folder's override only after the global preference was saved, so
 //! a failed save never loses the folder's explicit layout.
 
+use crate::settings::{
+    self,
+    columns::{Column as LayoutColumn, Layout},
+};
 use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
 };
 
 use fluent_bundle::FluentArgs;
-use gds::{
-    i18n, notifications,
-    settings::{
-        self,
-        columns::{Column as LayoutColumn, Layout},
-    },
-    ui,
-};
+use gds::{i18n, notifications, ui};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{

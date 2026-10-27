@@ -5,6 +5,7 @@ use std::{collections::HashSet, ffi::OsString};
 
 use super::*;
 use gds_uim::el;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 const EDGE_MARGIN: f32 = 8.;
@@ -105,19 +106,23 @@ impl Browser {
                     },
                 ))
             }
-            Some(collection @ (Collection::Recent | Collection::Favorites)) => {
+            Some(
+                collection @ (Collection::Recent | Collection::Favorites | Collection::Network),
+            ) => {
                 let path = self.selected_place_path()?;
-                let index = collection
-                    .place_paths(&self.places)?
+                let index = self
+                    .place_paths(collection)?
                     .iter()
                     .position(|entry| Path::new(entry) == path)?;
-                let scroll = self.place_cursor(collection)?.scroll.clone();
-                scroll.scroll_to_item(index);
+                let table = self.place_table(collection)?;
+                let handle = &table.read(cx).vertical_scroll_handle;
+                handle.scroll_to_item(index, ScrollStrategy::Nearest);
+                let scroll = handle.0.borrow().base_handle.clone();
                 Some((
                     Target::Place { collection, path },
                     RowAnchor {
                         index,
-                        height: px(ui::SIDEBAR_ITEM_HEIGHT),
+                        height,
                         scroll,
                     },
                 ))
@@ -147,7 +152,6 @@ impl Browser {
                     },
                 ))
             }
-            Some(Collection::Network) => None,
         }
     }
 
@@ -209,7 +213,13 @@ impl Browser {
             };
             view.update(cx, |view, cx| match target {
                 Target::Files { path, .. } => view.entry_context_menu(path, menu, window, cx),
-                Target::Volume(id) => view.build_volume_menu(builder.clone(), &id, menu, cx),
+                Target::Volume(id) => view.build_volume_menu(
+                    builder.clone(),
+                    &id,
+                    devices::VolumeOpen::Directory,
+                    menu,
+                    cx,
+                ),
                 Target::Trash { .. } => view.trash_selection_menu(menu, cx),
                 Target::Place { .. } => view.place_selection_menu(menu, cx),
             })
@@ -277,14 +287,47 @@ impl Browser {
         )
     }
 
-    fn place_selection_menu(&self, mut menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
+    pub(super) fn place_selection_menu(
+        &self,
+        mut menu: PopupMenu,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
         let Some(path) = self.selected_place_path() else {
             return menu;
         };
-        for command in [Command::Open, Command::OpenInNewTab, Command::CopyPaths] {
+        let collection = self.collection;
+        let mut commands = vec![Command::Open, Command::OpenInNewTab, Command::CopyPaths];
+        if matches!(
+            collection,
+            Some(Collection::Favorites | Collection::Network)
+        ) {
+            commands.insert(2, Command::Copy);
+            commands.extend([Command::Favorite, Command::Refresh]);
+        }
+        for command in commands {
             let browser = cx.entity().downgrade();
             let target = path.clone();
-            let label = i18n::text(command.label_id(), cx);
+            let label = i18n::text(
+                if command == Command::Favorite {
+                    if self.places.is_favorite(&path) {
+                        "place-favorite-remove"
+                    } else {
+                        "place-favorite-add"
+                    }
+                } else {
+                    command.label_id()
+                },
+                cx,
+            );
+            let icon = match command {
+                Command::Open | Command::OpenInNewTab => IconName::Folder,
+                Command::Copy => IconName::Copy,
+                Command::CopyPaths => IconName::ClipboardCopy,
+                Command::Favorite if self.places.is_favorite(&path) => IconName::StarOff,
+                Command::Favorite => IconName::Star,
+                Command::Refresh => IconName::RefreshCw,
+                _ => unreachable!("place menu actions have icons"),
+            };
             let shortcut = command != Command::OpenInNewTab || self.picker.is_none();
             let row = move |_: &mut Window, _: &mut App| {
                 el! {
@@ -294,47 +337,18 @@ impl Browser {
                     ]
                 }
             };
-            menu = menu.item(PopupMenuItem::element(row).on_click(move |_, window, cx| {
-                let _ = browser.update(cx, |view, cx| match command {
-                    Command::Open => {
-                        view.collection = None;
-                        view.activate_path(target.clone(), cx);
-                    }
-                    Command::OpenInNewTab => view.open_tab(target.clone(), false, window, cx),
-                    Command::CopyPaths => view.copy_selected_paths(&[target.clone()], cx),
-                    _ => unreachable!("place menus only contain place commands"),
-                });
-            }));
+            menu = menu.item(PopupMenuItem::element(row).icon(icon).on_click(
+                move |_, window, cx| {
+                    let _ = browser.update(cx, |view, cx| {
+                        if view.collection == collection
+                            && view.selected_place_path().as_ref() == Some(&target)
+                        {
+                            view.dispatch(command, window, cx);
+                        }
+                    });
+                },
+            ));
         }
         menu
-    }
-
-    pub(super) fn place_menu(
-        browser: WeakEntity<Self>,
-        collection: Collection,
-        path: PathBuf,
-    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu {
-        move |menu, window, cx| {
-            let Some(view) = browser.upgrade() else {
-                return menu;
-            };
-            view.update(cx, |view, cx| {
-                if view.collection != Some(collection) {
-                    return menu;
-                }
-                let listed = collection
-                    .place_paths(&view.places)
-                    .is_some_and(|paths| paths.iter().any(|entry| Path::new(entry) == path));
-                if !listed {
-                    return menu;
-                }
-                if let Some(cursor) = view.place_cursor_mut(collection) {
-                    cursor.path = Some(path.clone());
-                }
-                view.focus.focus(window, cx);
-                cx.notify();
-                view.place_selection_menu(menu, cx)
-            })
-        }
     }
 }

@@ -2,6 +2,7 @@
 //! when an asynchronous mount completes.
 
 mod interaction;
+mod names;
 pub(super) mod pages;
 pub(super) mod table;
 #[cfg(test)]
@@ -9,7 +10,7 @@ mod tests;
 mod view;
 
 use super::*;
-use gds::storage::{DeviceAction, Snapshot, VolumeId};
+use crate::storage::{DeviceAction, Snapshot, VolumeId};
 use gds_uim::el;
 use gpui_kit::{
     assets::IconName,
@@ -22,6 +23,12 @@ pub(super) enum Availability {
     Available,
     Unmounted,
     Disconnected,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum VolumeOpen {
+    FixedEntry,
+    Directory,
 }
 
 #[derive(Clone, Debug)]
@@ -232,7 +239,7 @@ impl Browser {
         id: VolumeId,
     ) -> impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) {
         move |browser, _, window, cx| {
-            browser.open_volume(id.clone(), window, cx);
+            browser.show_volume(id.clone(), window, cx);
         }
     }
 
@@ -271,6 +278,29 @@ impl Browser {
     }
 
     pub(super) fn open_volume(
+        &mut self,
+        id: VolumeId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.volume_can_open(&id, cx) {
+            return;
+        }
+        let Some(root) = self
+            .storage
+            .read(cx)
+            .snapshot
+            .volume(&id)
+            .and_then(|volume| self.default_volume_root(volume))
+        else {
+            return;
+        };
+        self.navigate(root, cx);
+        self.sync_filter_input(window, cx);
+        self.focus.focus(window, cx);
+    }
+
+    pub(super) fn show_volume(
         &mut self,
         id: VolumeId,
         window: &mut Window,
@@ -453,7 +483,7 @@ impl Browser {
             .len();
         let waiting = self.device_has_tasks(&action, cx);
         if !waiting && (matches!(action, DeviceAction::Unmount(_)) || count <= 1) {
-            self.start_device_removal(action, cx);
+            self.start_device_operation(action, cx);
             return;
         }
         let browser = cx.entity().downgrade();
@@ -480,7 +510,7 @@ impl Browser {
                 on_ok: $(move |_, _, cx| {
                     let _ = browser.update(cx, |browser, cx| {
                         if browser.device_has_tasks(&action, cx) { browser.pending_removals.push(action.clone()); cx.notify(); }
-                        else { browser.start_device_removal(action.clone(), cx); }
+                        else { browser.start_device_operation(action.clone(), cx); }
                     });
                     true
                 });
@@ -493,12 +523,12 @@ impl Browser {
             if self.device_has_tasks(&action, cx) {
                 self.pending_removals.push(action);
             } else {
-                self.start_device_removal(action, cx);
+                self.start_device_operation(action, cx);
             }
         }
     }
 
-    fn start_device_removal(&mut self, action: DeviceAction, cx: &mut Context<Self>) {
+    fn start_device_operation(&mut self, action: DeviceAction, cx: &mut Context<Self>) {
         let label = action.success_label();
         let mounted_volume =
             matches!(action, DeviceAction::Mount(_)).then(|| action.volume().clone());
@@ -583,6 +613,7 @@ impl ActionPresentation for DeviceAction {
     fn label(&self) -> &'static str {
         match self {
             Self::Mount(_) => "device-mount",
+            Self::SetLabel { .. } => "volume-rename",
             Self::Unmount(_) => "device-unmount",
             Self::PowerOff(_) => "device-power-off",
             Self::Eject(_) => "device-eject",
@@ -591,6 +622,7 @@ impl ActionPresentation for DeviceAction {
     fn success_label(&self) -> &'static str {
         match self {
             Self::Mount(_) => "device-mounted",
+            Self::SetLabel { .. } => "volume-renamed",
             Self::Unmount(_) => "device-unmounted",
             Self::PowerOff(_) => "device-powered-off",
             Self::Eject(_) => "device-ejected",

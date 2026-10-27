@@ -1,6 +1,6 @@
 use super::*;
 
-use gds::ui::{DataListStyle, Frame, IconButton, NavItem};
+use gds::ui::{ContentPage, DataListStyle, Frame, IconButton, NavItem};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
@@ -16,9 +16,7 @@ use gpui_kit::prelude::*;
 const SMALL_GAP: f32 = 4.;
 const ITEM_GAP: f32 = 8.;
 const CONTENT_PADDING: f32 = 24.;
-pub(super) const TABLE_INSET: f32 = 18.;
-const HEADER_PADDING: f32 = 16.;
-pub(super) const TITLE_SIZE: f32 = 22.;
+pub(super) const TABLE_INSET: f32 = ContentPage::TABLE_INSET;
 const TAB_HEIGHT: f32 = 44.;
 const ITEM_RADIUS: f32 = 6.;
 const CAPTION_PADDING: f32 = 6.;
@@ -69,12 +67,22 @@ impl Render for Browser {
         let body = if self.settings_open {
             el! { .div { flex_1; min_h_0 } [$(self.settings_view.clone())] }.into_any_element()
         } else {
+            let content = self.render_content(window, cx);
+            let content = ui::region::surface(
+                "content-region",
+                &self.focus,
+                Command::FocusContent,
+                window,
+                cx,
+            )
+            .flex()
+            .flex_col()
+            .flex_1()
+            .h_full()
+            .child(content)
+            .into_any_element();
             frame
-                .workspace(
-                    self.render_sidebar(window, cx),
-                    self.render_content(window, cx),
-                    cx,
-                )
+                .workspace(self.render_sidebar(window, cx), content, cx)
                 .into_any_element()
         };
         let footer = frame.footer(
@@ -110,10 +118,17 @@ impl Render for Browser {
         let selection_menu = self.render_selection_menu(window);
         el! {
             .div {
-                # "gds-files"; key_context: $context; track_focus: $&self.focus;
+                # "gds-files"; key_context: $context; track_focus: $&self.root_focus;
                 size_full; flex; flex_col; overflow_hidden;
                 text_color: $cx.theme().foreground; text_sm;
                 on_action: (cx, Self::on_application_menu).Context::listener;
+                on_action: (cx, Self::on_focus_locations).Context::listener;
+                on_action: (cx, Self::on_focus_volumes).Context::listener;
+                on_action: (cx, Self::on_focus_tabs).Context::listener;
+                on_action: (cx, Self::on_focus_content).Context::listener;
+                on_action: (cx, Self::on_focus_notifications).Context::listener;
+                on_action: (cx, Self::on_close_notification).Context::listener;
+                on_action: (cx, Self::on_close_all_notifications).Context::listener;
                 on_action: (cx, Self::on_settings).Context::listener;
                 on_action: (cx, Self::on_new_tab).Context::listener;
                 on_action: (cx, Self::on_close_tab).Context::listener;
@@ -157,6 +172,7 @@ impl Render for Browser {
                 on_action: (cx, Self::on_tab_prefix_home).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_recent).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_favorites).Context::listener;
+                on_action: (cx, Self::on_tab_prefix_volumes).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_network).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_trash).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_1).Context::listener;
@@ -168,6 +184,7 @@ impl Render for Browser {
                 on_action: (cx, Self::on_tab_prefix_7).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_8).Context::listener;
                 on_action: (cx, Self::on_tab_prefix_9).Context::listener;
+                capture_key_down: (cx, Self::on_region_key_down).Context::listener;
                 capture_key_down: (cx, Self::on_file_key_down).Context::listener;
                 capture_key_down: (cx, Self::on_trash_key_down).Context::listener;
                 capture_key_down: (cx, Self::on_place_key_down).Context::listener;
@@ -305,6 +322,7 @@ impl Browser {
         let id = slot.id;
         let compact = self.sidebar_collapsed;
         let selected = id == self.active_id && self.collection.is_none();
+        let cursor = self.regions.tabs.is_focused(window) && self.regions.tab == Some(id);
         let title: SharedString = slot.title().into();
         let path: SharedString = slot.path().display().to_string().into();
         // The folder keeps its own icon; pinned rows only gain a small pin badge.
@@ -315,15 +333,24 @@ impl Browser {
         // Hovering this row or holding Ctrl reveals its X; otherwise the space
         // stays reserved, so a press or release never reflows the strip.
         let show_close = self.revealing_tab_close() || self.hovered_tab == Some(id);
+        // A row with a pending press loses on_hover on mouse movement. Keep
+        // the close button's press off that row until its click completes.
+        let on_close_down = |_: &MouseDownEvent, _: &mut Window, cx: &mut App| {
+            cx.stop_propagation();
+        };
         let close = match (show_close, compact) {
             (true, false) => {
                 let on_close = cx.listener(Self::click_close_tab(id));
                 el! {
-                    ($("close-tab", id)).IconButton::new {
-                        icon: IconName::X; label: $i18n::text("close-this-tab", cx);
-                        @if (selected) command: Command::CloseTab; @end;
-                        on_click: on_close;
-                    }
+                    .div { # $("close-tab-press", id); flex_shrink_0;
+                        on_mouse_down: MouseButton::Left, on_close_down;
+                    } [
+                        ($("close-tab", id)).IconButton::new {
+                            icon: IconName::X; label: $i18n::text("close-this-tab", cx);
+                            @if (selected) command: Command::CloseTab; @end;
+                            on_click: on_close;
+                        },
+                    ]
                 }
                 .into_any_element()
             }
@@ -334,6 +361,7 @@ impl Browser {
                 el! {
                     .div {
                         # $("close-tab", id); absolute; top: 1.0.px; right: 1.0.px;
+                        on_mouse_down: MouseButton::Left, on_close_down;
                     } [
                         ($("close-tab-corner", id)).Button::new {
                             ghost; small; size: TAB_CORNER_CLOSE_SIZE.px;
@@ -389,6 +417,7 @@ impl Browser {
                 on_hover: on_hover;
                 @if (!self.revealing_tab_close()) tooltip_show_delay: ui::TOOLTIP_DELAY; tooltip: tooltip; @end;
             } [
+                @if (cursor) $(ui::region::focus_ring(cx)), @end,
                 icon,
                 @if (!compact)
                     .div { flex_1; min_w_0; flex; flex_col } [
@@ -546,7 +575,11 @@ impl Browser {
             format!("location-prefix-hint-{id}").into(),
             tabs::location_shortcut(target),
         );
-        el! { .div { relative; w_full } [nav, hint] }.into_any_element()
+        let cursor = self.regions.locations.is_focused(window) && self.regions.location == target;
+        el! { .div { relative; w_full } [nav, hint,
+            @if (cursor) $(ui::region::focus_ring(cx)), @end,
+        ] }
+        .into_any_element()
     }
 
     /// The footer's far-left slot reports the current location scope.
@@ -570,7 +603,12 @@ impl Browser {
         .into_any_element()
     }
 
-    fn render_content_header(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    fn directory_page(
+        &self,
+        body: AnyElement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> ContentPage {
         let title: SharedString = if self.home_active() {
             // Home is a fixed page, so its heading names the page rather than
             // repeating the folder name the breadcrumbs already show.
@@ -595,28 +633,36 @@ impl Browser {
             "filter-hint".into(),
             ui::Shortcut::from(Command::Filter),
         );
-        el! {
-            .div { flex; items_center; gap: ITEM_GAP.px; px: CONTENT_PADDING.px; py: HEADER_PADDING.px } [
-                .div { flex_1; min_w_0; text_size: $(gds::typography::scaled(TITLE_SIZE, cx)); font_weight: FontWeight::SEMIBOLD; truncate } [title],
-                .div { relative; w: FILTER_WIDTH.px; flex_shrink_0 } [
-                    ($&self.filter_input).Input::new { small; cleanable: true; prefix: IconName::Search.Icon::new },
-                    filter_hint,
-                ],
-                "favorite".IconButton::new {
-                    icon: IconName::Star;
-                    label: $i18n::text(if favorite { "favorite-remove" } else { "favorite-add" }, cx);
-                    active: favorite;
-                    command: Command::Favorite;
-                    on_click: on_favorite;
-                },
-                "columns".IconButton::new {
-                    icon: IconName::Columns3Cog; label: $i18n::text("columns-configure", cx);
-                    command: Command::Columns;
-                    disabled: $(!self.columns_available()); on_click: on_columns;
-                },
-                hidden, details, refresh,
+        let filter = el! {
+            .div { relative; w: FILTER_WIDTH.px; flex_shrink_0 } [
+                ($&self.filter_input).Input::new { small; cleanable: true; prefix: IconName::Search.Icon::new },
+                filter_hint,
             ]
-        }
+        };
+        let favorite = el! {
+            "favorite".IconButton::new {
+                icon: IconName::Star;
+                label: $i18n::text(if favorite { "favorite-remove" } else { "favorite-add" }, cx);
+                active: favorite;
+                command: Command::Favorite;
+                on_click: on_favorite;
+            }
+        };
+        let columns = el! {
+            "columns".IconButton::new {
+                icon: IconName::Columns3Cog; label: $i18n::text("columns-configure", cx);
+                command: Command::Columns;
+                disabled: $(!self.columns_available()); on_click: on_columns;
+            }
+        };
+        ContentPage::new("directory-page", title, body).actions(vec![
+            filter.into_any_element(),
+            favorite.into_any_element(),
+            columns.into_any_element(),
+            hidden.into_any_element(),
+            details.into_any_element(),
+            refresh.into_any_element(),
+        ])
     }
 
     fn render_content(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -627,13 +673,11 @@ impl Browser {
             return self.render_device_unavailable(cx);
         }
         self.sync_preview(cx);
-        let header = self.render_content_header(window, cx);
         let list = self.render_file_table(window, cx);
         let menu = Self::directory_menu_builder(cx.entity().downgrade(), self.current_path());
-        let list_area = el! {
-            .div { # "file-list-area"; flex_1; min_h_0; overflow_hidden; px: TABLE_INSET.px } [list]
-            { context_menu: menu; into_any_element }
-        };
+        let list_area = ContentPage::table_area("file-list-area", list)
+            .context_menu(menu)
+            .into_any_element();
         let rows = self.active().map_or(0, |slot| slot.table_rows.len());
         let scroll = self
             .active()
@@ -659,12 +703,7 @@ impl Browser {
         } else {
             self.marquee_surface(list_area.into_any_element(), window, cx)
         };
-        let content = el! {
-            .div { flex_1; min_w_0; flex; flex_col; min_h_0 } [
-                header,
-                list_area,
-            ]
-        };
+        let content = self.directory_page(list_area, window, cx);
         let panel = self.preview_visible.then(|| {
             el! {
                 .div {
@@ -776,10 +815,6 @@ impl Browser {
         drag_drop::drop_target(empty, self.current_path(), cx.entity().downgrade())
     }
 
-    fn empty_message(&self, message: SharedString) -> Div {
-        el! { .div { size_full; flex; items_center; justify_center } [message] }
-    }
-
     fn render_collection(
         &self,
         collection: Collection,
@@ -789,116 +824,12 @@ impl Browser {
         // Trash and Network are virtual locations; they never borrow a
         // filesystem path from the active tab.
         match collection {
-            Collection::Volumes => return self.render_devices_page(window, cx),
-            Collection::Trash => return self.render_trash(window, cx),
-            Collection::Network => return self.render_network(cx),
-            Collection::Recent | Collection::Favorites => {}
-        }
-        let Some(cursor) = self.place_cursor(collection) else {
-            return self
-                .empty_message(i18n::text("empty-collection", cx))
-                .into_any_element();
-        };
-        let paths = collection.place_paths(&self.places).unwrap_or(&[]);
-        let selected = cursor
-            .path
-            .as_deref()
-            .and_then(|path| paths.iter().position(|entry| Path::new(entry) == path));
-        let icon = collection.icon();
-        let rows: Vec<_> = paths
-            .iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                let path = PathBuf::from(entry);
-                let label = path.display().to_string();
-                let menu = Self::place_menu(cx.entity().downgrade(), collection, path.clone());
-                let on_click = cx.listener(Self::click_place(path));
-                let row = el! {
-                    ($("place", index), icon, label).NavItem::new {
-                        selected: $(selected == Some(index));
-                        on_click: on_click;
-                    }
-                };
-                el! { .div { # $("place-context", index); w_full; flex_shrink_0 } [row] }
-                    .context_menu(menu)
-                    .into_any_element()
-            })
-            .collect();
-        let title: SharedString = i18n::text(collection.label_id(), cx);
-        let mut actions = Vec::new();
-        if collection == Collection::Recent {
-            // Only a history can be cleared; the control stays disabled rather
-            // than pretending an empty list has something to drop.
-            let on_clear = cx.listener(Self::on_clear_recent);
-            actions.push(
-                el! {
-                    "clear-recent".IconButton::new {
-                        icon: IconName::Broom; label: $i18n::text("clear-recent", cx);
-                        command: Command::ClearRecent; disabled: $(paths.is_empty());
-                        on_click: on_clear;
-                    }
-                }
-                .into_any_element(),
-            );
-        }
-        let list: AnyElement = if paths.is_empty() {
-            self.empty_message(i18n::text("empty-collection", cx))
-                .into_any_element()
-        } else {
-            el! {
-                .div {
-                    # "places-list"; flex_1; min_h_0; overflow_y_scroll;
-                    track_scroll: $(&cursor.scroll);
-                } [..rows]
+            Collection::Volumes => self.render_devices_page(window, cx),
+            Collection::Trash => self.render_trash(window, cx),
+            Collection::Recent | Collection::Network | Collection::Favorites => {
+                self.render_places_page(collection, window, cx)
             }
-            .into_any_element()
-        };
-        let body = el! {
-            .div {
-                # "places-body"; flex_1; min_h_0; flex; flex_col;
-                px: CONTENT_PADDING.px; pb: CONTENT_PADDING.px;
-            } [list]
         }
-        .into_any_element();
-        let body = ui::ListSurface::new(
-            "places-selection-surface",
-            body,
-            paths.len(),
-            cursor.scroll.clone(),
-        )
-        .row_height(px(ui::SIDEBAR_ITEM_HEIGHT))
-        .header_height(px(0.))
-        .inset_x(px(CONTENT_PADDING))
-        .bottom_inset(px(0.))
-        .on_blank_press(cx.listener(Self::on_list_background_press));
-        el! {
-            .div { # "places-content"; flex; flex_col; size_full; min_h_0 } [
-                .div {
-                    # "places-header"; flex; flex_shrink_0; items_center; gap: ITEM_GAP.px;
-                    px: CONTENT_PADDING.px; py: HEADER_PADDING.px;
-                } [
-                    .div {
-                        flex_1; min_w_0; truncate; font_weight: FontWeight::SEMIBOLD;
-                        text_size: $(gds::typography::scaled(TITLE_SIZE, cx));
-                    } [title],
-                    ..actions,
-                ],
-                body,
-            ]
-        }
-        .into_any_element()
-    }
-
-    /// The Network page is honest about not browsing yet; it is still a fixed,
-    /// selectable page with the same menu and its own prefix key.
-    fn render_network(&self, cx: &App) -> AnyElement {
-        el! {
-            .div { size_full; flex; flex_col; p: CONTENT_PADDING.px; gap: TABLE_INSET.px } [
-                .div { text_lg; font_weight: FontWeight::SEMIBOLD } [$i18n::text("network", cx)],
-                $self.empty_message(i18n::text("network-not-implemented", cx)),
-            ]
-        }
-        .into_any_element()
     }
 
     fn render_terminal_placeholder(&self, frame: &Frame, cx: &mut Context<Self>) -> AnyElement {
@@ -1007,10 +938,11 @@ impl Browser {
 }
 
 impl LocationTarget {
-    pub(super) const ALL: [Self; 5] = [
+    pub(super) const ALL: [Self; 6] = [
         Self::Home,
         Self::Recent,
         Self::Favorites,
+        Self::Volumes,
         Self::Network,
         Self::Trash,
     ];
@@ -1019,6 +951,7 @@ impl LocationTarget {
             Self::Home => "home",
             Self::Recent => "recent",
             Self::Favorites => "favorites",
+            Self::Volumes => "volumes",
             Self::Network => "network",
             Self::Trash => "trash",
         }
@@ -1028,6 +961,7 @@ impl LocationTarget {
             Self::Home => IconName::House,
             Self::Recent => IconName::Clock,
             Self::Favorites => IconName::Star,
+            Self::Volumes => IconName::HardDrive,
             Self::Network => IconName::Network,
             Self::Trash => IconName::Trash,
         }
@@ -1035,31 +969,13 @@ impl LocationTarget {
 }
 
 impl Collection {
-    fn label_id(self) -> &'static str {
+    pub(super) fn label_id(self) -> &'static str {
         match self {
             Self::Volumes => "volumes",
             Self::Recent => "recent",
             Self::Favorites => "favorites",
             Self::Network => "network",
             Self::Trash => "trash",
-        }
-    }
-    fn icon(self) -> IconName {
-        match self {
-            Self::Volumes => IconName::HardDrive,
-            Self::Recent => IconName::Clock,
-            Self::Favorites => IconName::Star,
-            Self::Network => IconName::Network,
-            Self::Trash => IconName::Trash,
-        }
-    }
-    /// Places listed directly by a collection; `None` for a virtual location
-    /// whose rows come from a backend instead of the saved places.
-    pub(super) fn place_paths(self, places: &Places) -> Option<&[std::ffi::OsString]> {
-        match self {
-            Self::Recent => Some(&places.recent),
-            Self::Favorites => Some(&places.favorites),
-            Self::Network | Self::Trash | Self::Volumes => None,
         }
     }
 }

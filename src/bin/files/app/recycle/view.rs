@@ -3,10 +3,10 @@
 
 use std::{cell::RefCell, rc::Rc};
 
+use crate::actions::Command;
 use gds::{
-    actions::Command,
     i18n,
-    ui::{DataListStyle, DialogActions, IconButton, ShortcutBadge},
+    ui::{ContentPage, DataListStyle, DialogActions, IconButton, ShortcutBadge},
 };
 use gds_uim::el;
 use gpui_kit::assets::IconName;
@@ -21,16 +21,13 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 
 use super::super::Browser;
-use super::super::view::TITLE_SIZE;
 use super::{
     backend::{Action, Entry},
     table::{self, TrashTable},
 };
 
 const CONTENT_PADDING: f32 = 24.;
-const HEADER_PADDING: f32 = 16.;
-const TABLE_INSET: f32 = 18.;
-const ITEM_GAP: f32 = 8.;
+const TABLE_INSET: f32 = ContentPage::TABLE_INSET;
 const STATE_GAP: f32 = 8.;
 const STATE_ICON_SIZE: f32 = 28.;
 const STATE_MAX_WIDTH: f32 = 420.;
@@ -45,16 +42,14 @@ pub(super) fn render_trash(
     window: &mut Window,
     cx: &mut Context<Browser>,
 ) -> AnyElement {
-    let header = render_header(browser, cx);
+    let actions = header_actions(browser, cx);
     let body = render_body(browser, window, cx);
-    el! {
-        .div { # "trash-content"; size_full; min_h_0; min_w_0; flex; flex_col } [header, body]
-    }
-    .into_any_element()
+    ContentPage::new("trash-content", i18n::text("trash", cx), body)
+        .actions(actions)
+        .into_any_element()
 }
 
-fn render_header(browser: &Browser, cx: &mut Context<Browser>) -> AnyElement {
-    let title: SharedString = i18n::text("trash", cx);
+fn header_actions(browser: &Browser, cx: &mut Context<Browser>) -> Vec<AnyElement> {
     let busy = browser.trash.is_busy();
     let has_selection = browser.trash.selected_count() > 0;
     let empty = browser.trash.rows().is_empty();
@@ -98,19 +93,12 @@ fn render_header(browser: &Browser, cx: &mut Context<Browser>) -> AnyElement {
             on_click: on_empty;
         }
     };
-    el! {
-        .div {
-            # "trash-header"; flex; flex_shrink_0; items_center; gap: ITEM_GAP.px;
-            px: CONTENT_PADDING.px; py: HEADER_PADDING.px;
-        } [
-            .div {
-                flex_1; min_w_0; truncate; font_weight: FontWeight::SEMIBOLD;
-                text_size: $(gds::typography::scaled(TITLE_SIZE, cx));
-            } [title],
-            restore, purge, refresh, empty_action,
-        ]
-    }
-    .into_any_element()
+    vec![
+        restore.into_any_element(),
+        purge.into_any_element(),
+        refresh.into_any_element(),
+        empty_action.into_any_element(),
+    ]
 }
 
 fn render_body(browser: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
@@ -201,13 +189,9 @@ fn render_table(browser: &Browser, window: &mut Window, cx: &mut Context<Browser
         cx.entity().downgrade(),
         !browser.trash.is_busy() && !browser.trash.rows().is_empty(),
     );
-    let area = el! {
-        .div {
-            # "trash-table-area"; flex_1; min_h_0; min_w_0; overflow_hidden;
-            px: TABLE_INSET.px;
-        } [table]
-        { context_menu: menu; into_any_element }
-    };
+    let area = ContentPage::table_area("trash-table-area", table)
+        .context_menu(menu)
+        .into_any_element();
     let scroll = browser
         .trash
         .table

@@ -178,6 +178,15 @@ enum Ending {
 impl Browser {
     pub(super) fn copy_files(&mut self, cut: bool, _: &mut Window, cx: &mut Context<Self>) {
         let paths = self.selected_visible_paths();
+        self.copy_file_paths(paths, cut, cx);
+    }
+
+    pub(super) fn copy_file_paths(
+        &mut self,
+        paths: Vec<PathBuf>,
+        cut: bool,
+        cx: &mut Context<Self>,
+    ) {
         if paths.is_empty() {
             return;
         }

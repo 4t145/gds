@@ -5,7 +5,7 @@ use super::*;
 use gds::{typography, ui::DataListStyle};
 use gds_uim::el;
 use gpui_kit::component::{
-    Disableable, Sizable,
+    Sizable,
     button::{Button, ButtonVariants},
     menu::{DropdownMenu, PopupMenu},
     table::{Column, TableDelegate, TableEvent, TableSelection, TableState},
@@ -13,7 +13,6 @@ use gpui_kit::component::{
 };
 
 const FORMAT_WIDTH: f32 = 76.;
-const MENU_WIDTH: f32 = 40.;
 const MIN_WIDTH: f32 = 700.;
 const MIN_NAME_WIDTH: f32 = 172.;
 const MIN_SPACE_WIDTH: f32 = 220.;
@@ -91,7 +90,7 @@ impl VolumeTable {
     }
 
     fn columns(width: f32, cx: &App) -> Vec<Column> {
-        let flexible = width.max(MIN_WIDTH) - FORMAT_WIDTH - MENU_WIDTH;
+        let flexible = width.max(MIN_WIDTH) - FORMAT_WIDTH;
         let name = (flexible * NAME_FRACTION).max(MIN_NAME_WIDTH);
         let space = (flexible * SPACE_FRACTION).max(MIN_SPACE_WIDTH);
         let mount = (flexible - name - space).max(MIN_MOUNT_WIDTH);
@@ -100,28 +99,20 @@ impl VolumeTable {
             ("format", "volume-format", FORMAT_WIDTH),
             ("space", "volume-space", space),
             ("mount", "volume-default-mount", mount),
-            ("menu", "volume-actions", MENU_WIDTH),
         ]
         .into_iter()
         .map(|(key, label, width)| {
-            Column::new(
-                key,
-                if key == "menu" {
-                    "".into()
-                } else {
-                    i18n::text(label, cx)
-                },
-            )
-            .width(px(width))
-            .min_width(px(width))
-            .movable(false)
-            .resizable(false)
-            .paddings(Edges {
-                top: px(0.),
-                bottom: px(0.),
-                left: px(DataListStyle::CELL_PADDING_X),
-                right: px(DataListStyle::CELL_PADDING_X),
-            })
+            Column::new(key, i18n::text(label, cx))
+                .width(px(width))
+                .min_width(px(width))
+                .movable(false)
+                .resizable(false)
+                .paddings(Edges {
+                    top: px(0.),
+                    bottom: px(0.),
+                    left: px(DataListStyle::CELL_PADDING_X),
+                    right: px(DataListStyle::CELL_PADDING_X),
+                })
         })
         .collect()
     }
@@ -176,6 +167,15 @@ impl VolumeTable {
         } else {
             label.clone()
         };
+        if row.volume.mount_points.len() <= 1 {
+            return el! {
+                .div { # $(format!("volume-default-{}", row.volume.object)); min_w_0; truncate; text_xs;
+                    tooltip_show_delay: ui::TOOLTIP_DELAY;
+                    tooltip: $(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx));
+                } [label]
+            }
+            .into_any_element();
+        }
         Button::new(format!("volume-default-{}", row.volume.object))
             .ghost()
             .xsmall()
@@ -185,8 +185,7 @@ impl VolumeTable {
             .label(label)
             .accessibility_label(i18n::text("volume-default-mount", cx))
             .tooltip(tooltip)
-            .dropdown_caret(row.volume.mount_points.len() > 1 || missing)
-            .disabled(row.volume.mount_points.is_empty())
+            .dropdown_caret(true)
             .dropdown_menu(Browser::default_mount_menu(
                 self.browser.clone(),
                 row.volume.id.clone(),
@@ -288,8 +287,7 @@ impl TableDelegate for VolumeTable {
             1 => el! { .div { text_xs; truncate } [$(if volume.filesystem.is_empty() { "—".to_owned() } else { volume.filesystem.clone() })] }.into_any_element(),
             2 if volume.mount_points.is_empty() => el! { .div { text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-not-mounted", cx)] }.into_any_element(),
             2 => Browser::capacity_bar(format!("volume-table-capacity-{}", volume.object), row.capacity.as_ref(), false, cx).embedded().into_any_element(),
-            3 => self.root_selector(row, cx),
-            _ => Browser::volume_menu_button(self.browser.clone(), volume.id.clone(), format!("volume-menu-{}", volume.object), cx),
+            _ => self.root_selector(row, cx),
         };
         el! { .div { size_full; min_w_0; flex; items_center; text_color: foreground } [content] }
             .into_any_element()
@@ -333,7 +331,7 @@ impl TableDelegate for VolumeTable {
         if available {
             Browser::prepare_volume_open(&menu, window, cx);
         }
-        Browser::volume_menu_contents(self.browser.clone(), &id, menu, cx)
+        Browser::volume_menu_contents(self.browser.clone(), &id, VolumeOpen::Directory, menu, cx)
     }
 
     fn render_empty(

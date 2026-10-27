@@ -1,8 +1,9 @@
 //! Application messages use Fluent; component translations share the same locale.
 
-use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
+use fluent_bundle::{FluentArgs, FluentResource, concurrent::FluentBundle};
 use gpui_kit::{App, Global, SharedString};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 use unic_langid::LanguageIdentifier;
 
@@ -42,83 +43,94 @@ pub enum Error {
     Bundle(String),
 }
 
-struct Messages {
+/// A Fluent catalog composed of suite messages and the owning application's resources.
+/// Static labels are cached for consumers that render outside a GPUI context.
+pub struct Catalog {
     bundle: FluentBundle<FluentResource>,
+    labels: HashMap<String, String>,
 }
 
+impl Catalog {
+    /// # Errors
+    /// Returns an error for invalid Fluent or duplicate message IDs.
+    pub fn new(language: Language, application: &[&str]) -> Result<Self, Error> {
+        let core = match language {
+            Language::English => include_str!("i18n/assets/core-en-US.ftl"),
+            Language::Chinese => include_str!("i18n/assets/core-zh-CN.ftl"),
+        };
+        let time = match language {
+            Language::English => include_str!("i18n/assets/time-en-US.ftl"),
+            Language::Chinese => include_str!("i18n/assets/time-zh-CN.ftl"),
+        };
+        let locale: LanguageIdentifier = language
+            .locale()
+            .parse()
+            .expect("bundled locale identifiers are valid BCP 47");
+        let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+        let sources = [core, time].into_iter().chain(application.iter().copied());
+        let mut ids = Vec::new();
+        for source in sources {
+            let resource = FluentResource::try_new(source.to_owned())
+                .map_err(|(_, errors)| Error::Resource(format!("{errors:?}")))?;
+            ids.extend(source.lines().filter_map(|line| {
+                line.starts_with(char::is_alphabetic)
+                    .then(|| line.split_once(" =").map(|(id, _)| id.to_owned()))
+                    .flatten()
+            }));
+            bundle
+                .add_resource(resource)
+                .map_err(|errors| Error::Bundle(format!("{errors:?}")))?;
+        }
+        let mut catalog = Self {
+            bundle,
+            labels: HashMap::new(),
+        };
+        for id in ids {
+            if let Some(value) = catalog.format(&id, &FluentArgs::new()) {
+                catalog.labels.insert(id, value);
+            }
+        }
+        Ok(catalog)
+    }
+
+    pub fn text(&self, id: &str) -> Option<&str> {
+        self.labels.get(id).map(String::as_str)
+    }
+
+    pub fn format(&self, id: &str, arguments: &FluentArgs<'_>) -> Option<String> {
+        let pattern = self.bundle.get_message(id)?.value()?;
+        let mut errors = Vec::new();
+        let text = self
+            .bundle
+            .format_pattern(pattern, Some(arguments), &mut errors);
+        errors.is_empty().then(|| text.into_owned())
+    }
+}
+
+struct Messages(Catalog);
 impl Global for Messages {}
 
-/// Install application and component translations.
-///
-/// Application messages, shared timestamp messages, file operations, the
-/// details panel, the typography settings and the trash view are bundled
-/// separately so each area owns its keys; all of them land in one locale
-/// bundle, so message lookup and formatting stay unchanged.
+/// Install the suite's base messages and component translations.
 ///
 /// # Errors
-/// Returns an error when a bundled Fluent resource cannot be parsed or registered.
+/// Returns an error when bundled Fluent cannot be parsed or registered.
 pub fn install(language: Language, cx: &mut App) -> Result<(), Error> {
-    let resources: [(&str, &str); 7] = match language {
-        Language::English => [
-            (
-                "devices-en-US.ftl",
-                include_str!("i18n/assets/devices-en-US.ftl"),
-            ),
-            ("en-US.ftl", include_str!("i18n/assets/en-US.ftl")),
-            ("time-en-US.ftl", include_str!("i18n/assets/time-en-US.ftl")),
-            (
-                "operations-en-US.ftl",
-                include_str!("i18n/assets/operations-en-US.ftl"),
-            ),
-            (
-                "details-en-US.ftl",
-                include_str!("i18n/assets/details-en-US.ftl"),
-            ),
-            ("font-en-US.ftl", include_str!("i18n/assets/font-en-US.ftl")),
-            (
-                "recycle-en-US.ftl",
-                include_str!("i18n/assets/recycle-en-US.ftl"),
-            ),
-        ],
-        Language::Chinese => [
-            (
-                "devices-zh-CN.ftl",
-                include_str!("i18n/assets/devices-zh-CN.ftl"),
-            ),
-            ("zh-CN.ftl", include_str!("i18n/assets/zh-CN.ftl")),
-            ("time-zh-CN.ftl", include_str!("i18n/assets/time-zh-CN.ftl")),
-            (
-                "operations-zh-CN.ftl",
-                include_str!("i18n/assets/operations-zh-CN.ftl"),
-            ),
-            (
-                "details-zh-CN.ftl",
-                include_str!("i18n/assets/details-zh-CN.ftl"),
-            ),
-            ("font-zh-CN.ftl", include_str!("i18n/assets/font-zh-CN.ftl")),
-            (
-                "recycle-zh-CN.ftl",
-                include_str!("i18n/assets/recycle-zh-CN.ftl"),
-            ),
-        ],
-    };
-    let locale: LanguageIdentifier = language
-        .locale()
-        .parse()
-        .expect("bundled locale identifiers are valid BCP 47");
-    let mut bundle = FluentBundle::new(vec![locale]);
-    bundle.set_use_isolating(false);
-    for (name, source) in resources {
-        let resource = FluentResource::try_new(source.to_owned())
-            .map_err(|(_, errors)| Error::Resource(format!("{name}: {errors:?}")))?;
-        bundle
-            .add_resource(resource)
-            .map_err(|errors| Error::Bundle(format!("{name}: {errors:?}")))?;
-    }
+    install_resources(language, &[], cx)
+}
+
+/// Install messages owned by the current application alongside the base catalog.
+///
+/// # Errors
+/// Returns an error for invalid Fluent or duplicate message IDs.
+pub fn install_resources(
+    language: Language,
+    application: &[&str],
+    cx: &mut App,
+) -> Result<(), Error> {
+    let mut catalog = Catalog::new(language, application)?;
+    catalog.bundle.set_use_isolating(false);
     gpui_kit::component::set_locale(language.locale());
-    cx.set_global(Messages { bundle });
-    // Text looked up while rendering picks up the new bundle on the next frame;
-    // controls that cache their own copy are refreshed by their owning view.
+    cx.set_global(Messages(catalog));
     cx.refresh_windows();
     Ok(())
 }
@@ -128,24 +140,14 @@ pub fn text(id: &str, cx: &App) -> SharedString {
 }
 
 pub fn format(id: &str, arguments: Option<&FluentArgs<'_>>, cx: &App) -> SharedString {
-    let messages = cx.global::<Messages>();
-    let Some(pattern) = messages
-        .bundle
-        .get_message(id)
-        .and_then(|message| message.value())
-    else {
-        eprintln!("Missing Fluent message: {id}");
-        return id.to_owned().into();
-    };
-    let mut errors = Vec::new();
-    let text = messages
-        .bundle
-        .format_pattern(pattern, arguments, &mut errors)
-        .into_owned();
-    if !errors.is_empty() {
-        eprintln!("Could not format Fluent message {id}: {errors:?}");
-    }
-    text.into()
+    cx.global::<Messages>()
+        .0
+        .format(id, arguments.unwrap_or(&FluentArgs::new()))
+        .unwrap_or_else(|| {
+            eprintln!("Missing or invalid Fluent message: {id}");
+            id.to_owned()
+        })
+        .into()
 }
 
 pub fn count(id: &str, count: usize, cx: &App) -> SharedString {

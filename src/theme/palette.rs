@@ -11,7 +11,7 @@ const DANGER_HOVER_SHADE: f32 = 0.07;
 /// The same move, further, for a held (pressed) danger surface.
 const DANGER_ACTIVE_SHADE: f32 = 0.12;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Palette {
     pub content: Hsla,
     pub sidebar: Hsla,

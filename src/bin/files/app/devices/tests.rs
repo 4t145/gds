@@ -13,6 +13,7 @@ fn medium(identity: &str, root: &str) -> Snapshot {
             drive: None,
             name: "Data".into(),
             size: 0,
+            label: "Data".into(),
             filesystem: "ext4".into(),
             read_only: false,
             locked: false,

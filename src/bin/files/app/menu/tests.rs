@@ -1,4 +1,4 @@
-use gds::actions::{ApplicationMenu, Command};
+use crate::actions::{ApplicationMenu, Command};
 
 use super::MenuEntry;
 

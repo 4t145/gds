@@ -37,14 +37,20 @@ impl Browser {
         cx.notify();
     }
 
-    fn toggle_devices(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn toggle_devices(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = self.regions.volumes.contains_focused(window, cx);
         self.preferences.files.sidebar.volumes_collapsed =
-            !self.preferences.files.sidebar.volumes_collapsed;
+            !self.preferences.files.sidebar.volumes_collapsed || focused;
+        if focused {
+            self.focus.focus(window, cx);
+        }
         self.save_sidebar(cx);
     }
 
-    fn device_heading(&self, cx: &mut Context<Self>) -> AnyElement {
-        let collapsed = self.preferences.files.sidebar.volumes_collapsed;
+    fn device_heading(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let collapsed = self.preferences.files.sidebar.volumes_collapsed
+            && !self.regions.volumes.is_focused(window)
+            && !self.regions.volumes.contains_focused(window, cx);
         let on_click = cx.listener(Self::toggle_devices);
         let on_manage = cx.listener(Self::click_manage_devices);
         let heading = el! {
@@ -75,7 +81,7 @@ impl Browser {
             .map(|(position, slot)| self.render_tab(slot, position, cycle_targets, window, cx))
             .collect();
         let on_new_tab = cx.listener(Self::click_command(Command::NewTab));
-        el! {
+        let content = el! {
             .div { flex; flex_col; size_full; min_h_0; px: ui::SIDEBAR_PADDING.px; pt: GROUP_GAP.px } [
                 .div { flex; items_center; flex_shrink_0; h: HEADER_HEIGHT.px } [
                     @if (!self.sidebar_collapsed)
@@ -85,9 +91,23 @@ impl Browser {
                         command: Command::NewTab; on_click: on_new_tab;
                     },
                 ],
-                .div { # "vertical-tabs"; flex; flex_col; gap: ROW_GAP.px; flex_1; min_h_0; overflow_y_scroll } [..tabs],
+                .div { # "vertical-tabs"; flex; flex_col; gap: ROW_GAP.px; flex_1; min_h_0; overflow_y_scroll;
+                    track_scroll: $&self.regions.tabs_scroll;
+                } [..tabs],
             ]
-        }.into_any_element()
+        };
+        ui::region::surface(
+            "tabs-region",
+            &self.regions.tabs,
+            Command::FocusTabs,
+            window,
+            cx,
+        )
+        .flex()
+        .flex_col()
+        .size_full()
+        .child(content)
+        .into_any_element()
     }
 
     fn sidebar_locations(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -95,7 +115,7 @@ impl Browser {
             .into_iter()
             .map(|target| self.render_location(target, window, cx))
             .collect();
-        el! {
+        let content = el! {
             .div { # "sidebar-locations"; flex; flex_col; flex_shrink_0; w_full;
                 px: ui::SIDEBAR_PADDING.px; pb: ui::SIDEBAR_PADDING.px; gap: ROW_GAP.px;
             } [
@@ -106,14 +126,30 @@ impl Browser {
                 @end,
                 ..locations,
             ]
-        }
+        };
+        ui::region::surface(
+            "locations-region",
+            &self.regions.locations,
+            Command::FocusLocations,
+            window,
+            cx,
+        )
+        .w_full()
+        .flex_shrink_0()
+        .child(content)
         .into_any_element()
     }
 
     pub(super) fn render_sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let tabs = self.sidebar_tabs(window, cx);
         let locations = self.sidebar_locations(window, cx);
-        let devices = self.render_device_groups(true, window, cx);
+        let show_volumes =
+            self.preferences.files.sidebar.show_volumes || self.regions.reveal_volumes;
+        let devices = if show_volumes {
+            self.render_device_groups(true, window, cx)
+        } else {
+            Vec::new()
+        };
         let device_row_count = devices.len();
         let mounted_count = self
             .storage
@@ -123,18 +159,36 @@ impl Browser {
             .iter()
             .filter(|volume| volume.visible && !volume.mount_points.is_empty())
             .count();
-        let has_devices = !devices.is_empty();
-        let expanded = !self.preferences.files.sidebar.volumes_collapsed;
-        let heading = (has_devices && !self.sidebar_collapsed).then(|| self.device_heading(cx));
-        let workspace = if has_devices && expanded {
+        let expanded = !self.preferences.files.sidebar.volumes_collapsed
+            || self.regions.volumes.is_focused(window)
+            || self.regions.volumes.contains_focused(window, cx);
+        let heading = (!self.sidebar_collapsed).then(|| self.device_heading(window, cx));
+        let workspace = if show_volumes && expanded {
             let device_area = el! {
                 .div { flex; flex_col; size_full; min_h_0; px: ui::SIDEBAR_PADDING.px } [
                     ..heading,
                     .div { # "sidebar-devices"; flex; flex_col; flex_1; min_h_0; overflow_y_scroll;
                         gap: ROW_GAP.px; pb: ROW_GAP.px;
-                    } [..devices],
+                        track_scroll: $&self.regions.volumes_scroll;
+                    } [..devices,
+                        @if (device_row_count == 0 && !self.sidebar_collapsed)
+                            .div { px: GROUP_GAP.px; text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-none", cx)],
+                        @end,
+                    ],
                 ]
             }
+            .into_any_element();
+            let device_area = ui::region::surface(
+                "volumes-region",
+                &self.regions.volumes,
+                Command::FocusVolumes,
+                window,
+                cx,
+            )
+            .flex()
+            .flex_col()
+            .size_full()
+            .child(device_area)
             .into_any_element();
             let default_bottom = device_row_count.min(DEFAULT_DEVICE_ROWS) as f32
                 * (ui::SIDEBAR_ITEM_HEIGHT + ROW_GAP)
@@ -162,7 +216,9 @@ impl Browser {
             el! {
                 .div { flex; flex_col; size_full; min_h_0 } [
                     .div { flex_1; min_h_0; overflow_hidden } [tabs],
-                    .div { flex_shrink_0; px: ui::SIDEBAR_PADDING.px } [..heading],
+                    @if (show_volumes)
+                        .div { flex_shrink_0; px: ui::SIDEBAR_PADDING.px } [..heading],
+                    @end,
                 ]
             }
             .into_any_element()

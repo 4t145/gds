@@ -308,10 +308,10 @@ impl Hint {
             return Some(vec![target_binding]);
         }
         let entry = target.entry().action();
-        if !window.is_action_available(entry.as_ref(), cx) {
+        if !window.is_action_available(entry, cx) {
             return None;
         }
-        let binding = window.highest_precedence_binding_for_action_in(entry.as_ref(), focus)?;
+        let binding = window.highest_precedence_binding_for_action_in(entry, focus)?;
         let entry = visible_binding(true, Some(binding), held)?;
         Some(vec![entry, target_binding])
     }

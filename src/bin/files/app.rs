@@ -11,8 +11,10 @@ mod marquee;
 mod menu;
 mod new_folder;
 mod picker;
+mod place_pages;
 mod preview;
 mod recycle;
+mod regions;
 mod rename;
 mod selection;
 mod sidebar;
@@ -26,7 +28,8 @@ use std::{
     sync::Arc,
 };
 
-use gds::{actions::*, desktop, i18n, notifications, settings, storage, ui};
+use crate::{actions::*, settings, storage};
+use gds::{desktop, i18n, notifications, ui};
 use gpui_kit::component::WindowExt;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -55,11 +58,12 @@ enum Collection {
 /// collide with them.
 const HOME_TAB_ID: u64 = 0;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum LocationTarget {
     Home,
     Recent,
     Favorites,
+    Volumes,
     Network,
     Trash,
 }
@@ -89,16 +93,21 @@ pub(super) struct ColumnNotice;
 ///
 /// The cursor keeps the row's raw path, so two folders that print the same
 /// stay distinct rows; it lives for this session and is never written to the
-/// places file. The scroll handle belongs to the same page so a long list can
-/// follow the cursor without borrowing another page's offset.
+/// places file. Each page's table retains its own scroll position.
 #[derive(Default)]
 struct PlaceCursor {
     path: Option<PathBuf>,
-    scroll: ScrollHandle,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PageKind {
+    FixedLocation,
+    DirectoryTab,
 }
 
 struct OpenTab {
     id: u64,
+    kind: PageKind,
     initial_path: PathBuf,
     initial_generation: u64,
     initial_loading: bool,
@@ -124,6 +133,7 @@ impl OpenTab {
     fn new(id: u64, path: PathBuf, pinned: bool) -> Self {
         Self {
             id,
+            kind: PageKind::DirectoryTab,
             initial_path: path,
             initial_generation: 0,
             initial_loading: false,
@@ -140,6 +150,13 @@ impl OpenTab {
             pinned,
             device: None,
             picker: None,
+        }
+    }
+
+    fn fixed(id: u64, path: PathBuf) -> Self {
+        Self {
+            kind: PageKind::FixedLocation,
+            ..Self::new(id, path, false)
         }
     }
 
@@ -247,7 +264,9 @@ impl OpenTab {
 }
 
 pub struct Browser {
+    root_focus: FocusHandle,
     focus: FocusHandle,
+    regions: regions::State,
     path_input: Entity<InputState>,
     filter_input: Entity<InputState>,
     preview: Entity<preview::View>,
@@ -297,9 +316,17 @@ pub struct Browser {
     collection: Option<Collection>,
     /// The picker session, when this window is a file picker.
     picker: Option<picker::State>,
-    /// The keyboard cursor of the Recent and Favorites pages.
+    /// Each places page retains its own keyboard cursor and table scroll.
     recent_cursor: PlaceCursor,
     favorites_cursor: PlaceCursor,
+    network_cursor: PlaceCursor,
+    recent_table: Entity<gpui_kit::component::table::TableState<place_pages::table::LocationTable>>,
+    favorites_table:
+        Entity<gpui_kit::component::table::TableState<place_pages::table::LocationTable>>,
+    network_table:
+        Entity<gpui_kit::component::table::TableState<place_pages::table::LocationTable>>,
+    network: place_pages::Network,
+    favorites_loading: bool,
     trash: recycle::State,
     _subscriptions: Vec<Subscription>,
 }
@@ -337,6 +364,24 @@ impl Browser {
         let volume_table =
             devices::table::VolumeTable::make_state(cx.entity().downgrade(), window, cx);
         let trash = recycle::State::new(cx.entity().downgrade(), window, cx);
+        let recent_table = place_pages::table::LocationTable::make_state(
+            cx.entity().downgrade(),
+            Collection::Recent,
+            window,
+            cx,
+        );
+        let favorites_table = place_pages::table::LocationTable::make_state(
+            cx.entity().downgrade(),
+            Collection::Favorites,
+            window,
+            cx,
+        );
+        let network_table = place_pages::table::LocationTable::make_state(
+            cx.entity().downgrade(),
+            Collection::Network,
+            window,
+            cx,
+        );
         let column_editor = cx.new(|_| columns::Editor::new());
         let preview = cx.new(|_| preview::View::new());
         let rename = cx.new(|cx| rename::State::new(window, cx));
@@ -384,9 +429,11 @@ impl Browser {
             Ok(places) => (places, None),
             Err(error) => (Places::default(), Some(error.to_string())),
         };
-        let home_tab = OpenTab::new(HOME_TAB_ID, home.clone(), false);
+        let home_tab = OpenTab::fixed(HOME_TAB_ID, home.clone());
         let mut this = Self {
+            root_focus: cx.focus_handle(),
             focus,
+            regions: regions::State::new(cx),
             path_input,
             filter_input,
             preview,
@@ -428,6 +475,12 @@ impl Browser {
             picker: picker.map(picker::State::new),
             recent_cursor: PlaceCursor::default(),
             favorites_cursor: PlaceCursor::default(),
+            network_cursor: PlaceCursor::default(),
+            recent_table,
+            favorites_table,
+            network_table,
+            network: place_pages::Network::default(),
+            favorites_loading: false,
             trash,
             _subscriptions: subscriptions,
         };
@@ -461,6 +514,12 @@ impl Browser {
             return None;
         }
         self.tab_slot(self.active_id)
+    }
+
+    fn page_kind(&self) -> PageKind {
+        // Virtual collections are fixed locations without a directory slot.
+        self.active()
+            .map_or(PageKind::FixedLocation, |slot| slot.kind)
     }
 
     fn active_mut(&mut self) -> Option<&mut OpenTab> {
@@ -509,7 +568,8 @@ impl Browser {
         match collection {
             Collection::Recent => Some(&self.recent_cursor),
             Collection::Favorites => Some(&self.favorites_cursor),
-            Collection::Network | Collection::Trash | Collection::Volumes => None,
+            Collection::Network => Some(&self.network_cursor),
+            Collection::Trash | Collection::Volumes => None,
         }
     }
 
@@ -518,7 +578,8 @@ impl Browser {
         match collection {
             Collection::Recent => Some(&mut self.recent_cursor),
             Collection::Favorites => Some(&mut self.favorites_cursor),
-            Collection::Network | Collection::Trash | Collection::Volumes => None,
+            Collection::Network => Some(&mut self.network_cursor),
+            Collection::Trash | Collection::Volumes => None,
         }
     }
 
@@ -566,6 +627,7 @@ impl Browser {
         let mut slot = OpenTab::new(id, path, pinned);
         slot.picker = self.picker_projection();
         self.tabs.push(slot);
+        self.regions.tabs_scroll.scroll_to_item(self.tabs.len() - 1);
         self.active_id = id;
         self.collection = None;
         self.settings_open = false;
@@ -741,6 +803,10 @@ impl Browser {
     }
 
     fn navigate(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.collection.is_some() {
+            self.open_tab_inner(path, false, None, cx);
+            return;
+        }
         self.navigate_tab(self.active_id, path, cx);
     }
 
@@ -759,18 +825,12 @@ impl Browser {
             notifications::info(i18n::text("device-path-unavailable", cx), cx);
             return;
         }
-        // The Home page is fixed: opening another folder from it starts an
-        // ordinary tab instead of moving Home away from the home directory,
-        // and asking for the home folder again stays on Home.
-        if id == HOME_TAB_ID {
-            if path != self.home_tab.path() {
-                self.open_tab_inner(path, false, None, cx);
-            }
-            return;
-        }
-        if !explicit_device && let Some(page) = self.volume_pages.active(id) {
+        if !explicit_device
+            && let Some(slot) = self.tab_slot(id)
+            && slot.kind == PageKind::FixedLocation
+        {
             let activate = self.active_id == id && self.collection.is_none() && !self.settings_open;
-            if page.slot.path() != path {
+            if slot.path() != path {
                 let previous = (
                     self.active_id,
                     self.collection,
@@ -820,7 +880,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         if matches!(event, InputEvent::Blur) {
-            if self.path_editing {
+            if self.path_editing && !notifications::is_focused(window, cx) {
                 self.path_editing = false;
                 file_clipboard::refresh_cut(cx);
                 cx.notify();
@@ -942,6 +1002,9 @@ impl Browser {
         self.active_id = id;
         self.collection = None;
         self.path_editing = false;
+        if let Some(index) = self.tabs.iter().position(|slot| slot.id == id) {
+            self.regions.tabs_scroll.scroll_to_item(index);
+        }
         self.sync_filter_input(window, cx);
         self.refresh_if_hidden_changed(cx);
         self.dismiss_tab_prefix();
@@ -1066,36 +1129,46 @@ impl Browser {
             self.activate_picker_path(path, cx);
             return;
         }
+        self.open_path(path, desktop::OpenMode::DefaultApplication, cx);
+    }
+
+    fn open_path(&mut self, path: PathBuf, mode: desktop::OpenMode, cx: &mut Context<Self>) {
+        enum Activation {
+            Directory,
+            File(desktop::OpenOutcome),
+        }
+
         let target_tab = self.active_id;
-        let from_home = self.home_active();
+        let source_kind = self.page_kind();
         let worker_path = path.clone();
         let work = cx.background_executor().spawn(async move {
             let metadata = std::fs::metadata(&worker_path)?;
-            if metadata.is_dir() {
-                return Ok::<bool, anyhow::Error>(true);
+            if metadata.is_dir() && mode == desktop::OpenMode::DefaultApplication {
+                return Ok::<Activation, anyhow::Error>(Activation::Directory);
             }
-            desktop::open_file(&worker_path)?;
-            Ok(false)
+            desktop::open_file(&worker_path, mode)
+                .await
+                .map(Activation::File)
         });
         cx.spawn(async move |this, cx| {
             let result = work.await;
             if let Err(error) = this.update(cx, |this, cx| {
                 match result {
-                    Ok(true) if from_home && this.home_active() => {
-                        // Opening a folder from the fixed Home page starts an
-                        // ordinary tab; Home itself keeps the home directory.
+                    Ok(Activation::Directory) if source_kind == PageKind::FixedLocation => {
                         this.open_tab_inner(path, false, None, cx);
                     }
-                    Ok(true) => this.navigate_tab(target_tab, path, cx),
-                    Ok(false) => {
+                    Ok(Activation::Directory) => this.navigate_tab(target_tab, path, cx),
+                    Ok(Activation::File(desktop::OpenOutcome::Opened)) => {
                         this.places.record(&path);
                         this.save_places(cx);
                     }
-                    Err(error) => {
-                        notifications::Report::new(notifications::Level::Error, error.to_string())
-                            .replacing::<OpenNotice>()
-                            .show(cx)
-                    }
+                    Ok(Activation::File(desktop::OpenOutcome::Cancelled)) => {}
+                    Err(error) => notifications::Report::new(
+                        notifications::Level::Error,
+                        format!("{error:#}"),
+                    )
+                    .replacing::<OpenNotice>()
+                    .show(cx),
                 }
                 cx.notify();
             }) {
@@ -1267,6 +1340,25 @@ impl Browser {
         if self.rename.read(cx).is_open() || window.has_active_dialog(cx) {
             return;
         }
+        if notifications::is_focused(window, cx)
+            && !matches!(
+                command,
+                Command::FocusLocations
+                    | Command::FocusVolumes
+                    | Command::FocusTabs
+                    | Command::FocusContent
+                    | Command::FocusNotifications
+                    | Command::CloseNotification
+                    | Command::CloseAllNotifications
+                    | Command::Menu
+                    | Command::Settings
+                    | Command::Terminal
+                    | Command::Sidebar
+                    | Command::Cancel
+            )
+        {
+            return;
+        }
         // Window actions can win their bindings before popup key listeners.
         // Close the controlled menu before handling its chosen command.
         if self.menu_open && command != Command::Menu {
@@ -1282,6 +1374,15 @@ impl Browser {
             self.focus.focus(window, cx);
         }
         match command {
+            Command::FocusLocations
+            | Command::FocusVolumes
+            | Command::FocusTabs
+            | Command::FocusContent => {
+                self.focus_region(command, window, cx);
+            }
+            Command::FocusNotifications => notifications::focus(window, cx),
+            Command::CloseNotification => notifications::close_current(window, cx),
+            Command::CloseAllNotifications => notifications::close_all(window, cx),
             Command::Menu => {
                 // Settings keeps its own way back, and the path editor's text
                 // lives only in its widget: opening the menu there would discard
@@ -1306,6 +1407,9 @@ impl Browser {
                     self.focus.focus(window, cx);
                 }
                 self.reset_tab_prefix();
+                // The content region is about to unmount. Keep window actions
+                // reachable until a settings control takes focus.
+                self.root_focus.focus(window, cx);
                 self.settings_open = true;
                 self.path_editing = false;
                 self.settings_view.update(cx, |view, cx| {
@@ -1395,10 +1499,13 @@ impl Browser {
                 }
             }
             Command::Refresh => {
-                self.storage
-                    .update(cx, |service, cx| service.refresh_capacity(cx));
+                self.storage.update(cx, |service, cx| service.refresh(cx));
                 if self.collection == Some(Collection::Trash) {
                     self.refresh_trash(cx);
+                } else if self.collection == Some(Collection::Network) {
+                    self.refresh_network(cx);
+                } else if self.collection == Some(Collection::Favorites) {
+                    self.refresh_favorites(cx);
                 } else {
                     self.refresh_current(cx);
                 }
@@ -1412,7 +1519,16 @@ impl Browser {
                 }
             }
             Command::Copy | Command::Cut => {
-                if self.file_selection_focused(window, cx) {
+                if command == Command::Copy
+                    && matches!(
+                        self.collection,
+                        Some(Collection::Favorites | Collection::Network)
+                    )
+                    && self.list_keys_available(window, cx)
+                    && let Some(path) = self.selected_place_path()
+                {
+                    self.copy_file_paths(vec![path], false, cx);
+                } else if self.file_selection_focused(window, cx) {
                     self.copy_files(command == Command::Cut, window, cx);
                 }
             }
@@ -1456,7 +1572,13 @@ impl Browser {
             }
             Command::ContextMenu => self.open_selection_menu(window, cx),
             Command::Rename => {
-                if self.file_selection_focused(window, cx) {
+                if self.collection == Some(Collection::Volumes) {
+                    if self.list_keys_available(window, cx)
+                        && let Some(id) = self.volume_action_target(cx)
+                    {
+                        self.request_volume_rename(id, window, cx);
+                    }
+                } else if self.file_selection_focused(window, cx) {
                     self.request_rename(window, cx);
                 }
             }
@@ -1474,9 +1596,23 @@ impl Browser {
                     self.open_columns_editor(window, cx);
                 }
             }
-            Command::Favorite => self.favorite_current_folder(window, cx),
+            Command::Favorite => {
+                if matches!(
+                    self.collection,
+                    Some(Collection::Favorites | Collection::Network)
+                ) && self.list_keys_available(window, cx)
+                {
+                    self.favorite_selected_place(false, cx);
+                } else {
+                    self.favorite_current_folder(window, cx);
+                }
+            }
             Command::Trash => {
-                if self.collection == Some(Collection::Trash) {
+                if self.collection == Some(Collection::Favorites)
+                    && self.list_keys_available(window, cx)
+                {
+                    self.favorite_selected_place(true, cx);
+                } else if self.collection == Some(Collection::Trash) {
                     // Delete on a trashed record is a permanent deletion, not a
                     // second move into Trash; it keeps the confirmation step.
                     self.request_trash_purge(window, cx);
@@ -1520,7 +1656,9 @@ impl Browser {
                 self.apply_preferences(preferences, window, cx);
             }
             Command::Open => {
-                if self.collection == Some(Collection::Volumes) {
+                if self.regions.sidebar_focused(window, cx) {
+                    self.activate_region(window, cx);
+                } else if self.collection == Some(Collection::Volumes) {
                     if self.list_keys_available(window, cx)
                         && let Some(id) = self.volume_action_target(cx)
                     {
@@ -1528,11 +1666,11 @@ impl Browser {
                     }
                 } else if matches!(
                     self.collection,
-                    Some(Collection::Recent | Collection::Favorites)
+                    Some(Collection::Recent | Collection::Favorites | Collection::Network)
                 ) {
                     // A places page opens its keyboard selection; the mouse
                     // keeps opening a row directly.
-                    self.open_place_cursor(cx);
+                    self.open_place_cursor(window, cx);
                 } else if self.file_selection_focused(window, cx)
                     && self.active().is_some_and(|slot| !slot.is_loading())
                     && let Some(path) = self
@@ -1550,6 +1688,11 @@ impl Browser {
                 }
             }
             Command::Cancel => {
+                if self.regions.sidebar_focused(window, cx) {
+                    self.focus.focus(window, cx);
+                    cx.notify();
+                    return;
+                }
                 // GPUI dispatches bound actions before key listeners and stops
                 // propagation on the action, so `on_file_key_down` never sees
                 // the escape that cancels a pointer drag. Cancelling a drag ends

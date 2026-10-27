@@ -43,6 +43,7 @@ in {
         { common.default = lib.mkDefault [ "gtk" ]; }
         (lib.genAttrs ([ "common" ] ++ cfg.portal.desktops) (_: {
           "org.freedesktop.impl.portal.FileChooser" = lib.mkDefault [ "gds" ];
+          "org.freedesktop.impl.portal.AppChooser" = lib.mkDefault [ "gtk" ];
         }))
       ];
     })

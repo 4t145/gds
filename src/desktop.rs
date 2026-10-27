@@ -1,29 +1,68 @@
-//! Blocking desktop launch helpers. Call these from a background executor.
+//! Desktop launch helpers. Call these from a background executor.
+
+#[cfg(target_os = "linux")]
+mod portal;
+
+#[cfg(test)]
+mod tests;
 
 use std::{
     env,
     ffi::OsString,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
 
 use anyhow::{Context, Result, bail, ensure};
 
-/// Open a regular document with the desktop's default application.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenMode {
+    DefaultApplication,
+    ChooseApplication,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenOutcome {
+    Opened,
+    Cancelled,
+}
+
+/// Open a regular document, optionally asking the desktop to choose an application.
 ///
-/// This is not an execution entry point: executable files and desktop launchers
-/// require an explicit opening policy that the first application does not have.
-/// Symbolic links are resolved before checking permissions and launcher suffixes.
+/// Executable permissions on recognised media do not turn them into programs.
+/// Other executable files and desktop launchers require the application chooser.
+/// Symbolic links are resolved before checking the target.
 ///
 /// # Errors
-/// Returns an error for inaccessible/non-regular files, executable permissions,
-/// `.desktop` launchers, or failures reported by the desktop opener.
-pub fn open_file(path: &Path) -> Result<()> {
+/// Returns an error for inaccessible/non-regular files, executables opened without
+/// a chooser, an unavailable chooser, or failures reported by the desktop opener.
+pub async fn open_file(path: &Path, mode: OpenMode) -> Result<OpenOutcome> {
+    let resolved = document_path(path, mode)?;
+    if mode == OpenMode::ChooseApplication {
+        #[cfg(target_os = "linux")]
+        return portal::choose_application(&resolved).await;
+        #[cfg(not(target_os = "linux"))]
+        bail!("此平台尚不支持选择打开方式");
+    }
+    // xdg-open may live as long as the player. Observe immediate launch failures
+    // without waiting for the document's application to exit.
+    open::that_detached(&resolved)
+        .with_context(|| format!("无法使用默认应用打开文件：{}", resolved.display()))?;
+    Ok(OpenOutcome::Opened)
+}
+
+/// # Errors
+/// Reports unavailable files and targets that require an explicit application.
+fn document_path(path: &Path, mode: OpenMode) -> Result<PathBuf> {
     let resolved = resolve(path)?;
     let metadata = fs::metadata(&resolved)
         .with_context(|| format!("无法读取文件信息：{}", resolved.display()))?;
     ensure!(metadata.is_file(), "不是普通文件：{}", path.display());
+    if mode == OpenMode::ChooseApplication {
+        return Ok(resolved);
+    }
     ensure!(
         !is_desktop_launcher(path) && !is_desktop_launcher(&resolved),
         "不直接启动 .desktop 文件，请明确选择打开方式：{}",
@@ -33,13 +72,28 @@ pub fn open_file(path: &Path) -> Result<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         ensure!(
-            metadata.permissions().mode() & 0o111 == 0,
+            metadata.permissions().mode() & 0o111 == 0 || is_media(&resolved)?,
             "文件具有可执行权限，请明确选择打开方式；当前入口不会执行它：{}",
             path.display()
         );
     }
-    open::that(&resolved)
-        .with_context(|| format!("无法使用默认应用打开文件：{}", resolved.display()))
+    Ok(resolved)
+}
+
+/// # Errors
+/// Reports errors reading the file header.
+fn is_media(path: &Path) -> Result<bool> {
+    const HEADER_LIMIT: u64 = 8 * 1024;
+    let mut header = Vec::new();
+    fs::File::open(path)
+        .and_then(|file| file.take(HEADER_LIMIT).read_to_end(&mut header))
+        .with_context(|| format!("无法读取文件内容：{}", path.display()))?;
+    Ok(infer::get(&header).is_some_and(|kind| {
+        matches!(
+            kind.matcher_type(),
+            infer::MatcherType::Video | infer::MatcherType::Audio | infer::MatcherType::Image
+        )
+    }))
 }
 
 /// Open an external terminal at an existing local directory.

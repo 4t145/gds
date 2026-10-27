@@ -201,7 +201,9 @@ Zed 可借鉴交互与 GPUI 输入 / 渲染方式，但它的 `terminal`、`term
 src/lib.rs                   公共库入口
 src/theme.rs + theme/        来源适配、语义快照和 Kit 桥接
 src/ui.rs + ui/              图标词汇、公共组件、共享网格与应用框架
-src/settings.rs + settings/  可复用设置中心，所有偏好页面集中在此
+src/ui/settings.rs          套件设置行与数值滑块
+src/bin/files/settings/     Files 偏好模型、页面和配置存储
+src/bin/files/storage/      卷发现、容量查询与挂载操作
 src/desktop.rs + desktop/    默认应用、内容图标、外部终端等系统集成
 src/terminal.rs + terminal/  PTY / 屏幕 / GPUI 视图与终端能力
 src/bin/files/main.rs        Files 入口

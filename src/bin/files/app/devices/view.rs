@@ -1,10 +1,10 @@
 use super::*;
-use gds::storage::{DeviceKind, Volume};
-use gds::ui::{IconButton, NavItem, ShortcutBadge, capacity::CapacityBar};
+use crate::storage::{DeviceKind, Volume};
+use gds::ui::{ContentPage, IconButton, NavItem, ShortcutBadge, capacity::CapacityBar};
 use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonVariants},
-    menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem},
+    menu::{ContextMenuExt, PopupMenu, PopupMenuItem},
     spinner::Spinner,
 };
 
@@ -160,12 +160,16 @@ impl Browser {
                 .into_iter()
                 .collect(),
         );
-        el! { .div { # id; w_full; flex_shrink_0 } [nav] }
-            .context_menu(Self::volume_menu(
-                cx.entity().downgrade(),
-                volume.id.clone(),
-            ))
-            .into_any_element()
+        let cursor = self.regions.volumes.is_focused(window)
+            && self.regions.volume.as_ref() == Some(&volume.id);
+        el! { .div { # id; relative; w_full; flex_shrink_0 } [nav,
+            @if (cursor) $(ui::region::focus_ring(cx)), @end,
+        ] }
+        .context_menu(Self::volume_menu(
+            cx.entity().downgrade(),
+            volume.id.clone(),
+        ))
+        .into_any_element()
     }
 
     pub(super) fn volume_menu(
@@ -187,26 +191,28 @@ impl Browser {
             if available {
                 Self::prepare_volume_open(&menu, window, cx);
             }
-            Self::volume_menu_contents(browser.clone(), &id, menu, cx)
+            Self::volume_menu_contents(browser.clone(), &id, VolumeOpen::FixedEntry, menu, cx)
         }
     }
 
     pub(in super::super) fn volume_menu_contents(
         browser: WeakEntity<Self>,
         id: &VolumeId,
+        open: VolumeOpen,
         menu: PopupMenu,
         cx: &App,
     ) -> PopupMenu {
         let Some(view) = browser.upgrade() else {
             return menu;
         };
-        view.read(cx).build_volume_menu(browser, id, menu, cx)
+        view.read(cx).build_volume_menu(browser, id, open, menu, cx)
     }
 
     pub(in super::super) fn build_volume_menu(
         &self,
         browser: WeakEntity<Self>,
         id: &VolumeId,
+        open: VolumeOpen,
         mut menu: PopupMenu,
         cx: &App,
     ) -> PopupMenu {
@@ -215,24 +221,53 @@ impl Browser {
         };
         let target_matches = self.volume_action_target(cx).as_ref() == Some(id);
         let available = self.volume_can_open(id, cx);
-        let target = browser.clone();
-        let open_id = id.clone();
-        let render = menu_row(i18n::text("open", cx), Some(Command::Open));
-        menu = menu.item(
-            PopupMenuItem::element(render)
-                .disabled(!available)
-                .on_click(move |_, window, cx| {
-                    let _ = target.update(cx, |view, cx| {
-                        if view.volume_can_open(&open_id, cx) {
-                            view.open_volume(open_id.clone(), window, cx);
-                        }
-                    });
-                }),
-        );
+        if !volume.mount_points.is_empty() {
+            let target = browser.clone();
+            let open_id = id.clone();
+            let render = menu_row(i18n::text("open", cx), Some(Command::Open));
+            menu = menu.item(
+                PopupMenuItem::element(render)
+                    .icon(IconName::Folder)
+                    .disabled(!available)
+                    .on_click(move |_, window, cx| {
+                        let _ = target.update(cx, |view, cx| {
+                            if view.volume_can_open(&open_id, cx) {
+                                match open {
+                                    VolumeOpen::FixedEntry => {
+                                        view.show_volume(open_id.clone(), window, cx)
+                                    }
+                                    VolumeOpen::Directory => {
+                                        view.open_volume(open_id.clone(), window, cx)
+                                    }
+                                }
+                            }
+                        });
+                    }),
+            );
+        }
+        if self.volume_can_rename(id, cx) {
+            let target = browser.clone();
+            let rename_id = id.clone();
+            let render = menu_row(
+                i18n::text("rename", cx),
+                target_matches.then_some(Command::Rename),
+            );
+            menu = menu.item(
+                PopupMenuItem::element(render)
+                    .icon(IconName::TextCursor)
+                    .on_click(move |_, window, cx| {
+                        let _ = target.update(cx, |view, cx| {
+                            view.request_volume_rename(rename_id.clone(), window, cx);
+                        });
+                    }),
+            );
+        }
         let command = if volume.mount_points.is_empty() {
             Command::MountVolume
-        } else {
+        } else if volume.can_unmount() {
             Command::UnmountVolume
+        } else {
+            return menu;
         };
         let enabled = self.volume_command_enabled(id, command, cx);
         let render = menu_row(
@@ -240,30 +275,20 @@ impl Browser {
             target_matches.then_some(command),
         );
         let id = id.clone();
-        menu.item(PopupMenuItem::element(render).disabled(!enabled).on_click(
-            move |_, window, cx| {
-                let _ = browser.update(cx, |view, cx| {
-                    view.execute_volume_command(id.clone(), command, window, cx)
-                });
-            },
-        ))
-    }
-
-    pub(super) fn volume_menu_button(
-        browser: WeakEntity<Self>,
-        id: VolumeId,
-        element_id: String,
-        cx: &App,
-    ) -> AnyElement {
-        Button::new(element_id)
-            .ghost()
-            .small()
-            .size(px(ui::ICON_BUTTON_SIZE))
-            .icon(IconName::Ellipsis)
-            .accessibility_label(i18n::text("volume-actions", cx))
-            .tooltip(i18n::text("volume-actions", cx))
-            .dropdown_menu(Self::volume_menu(browser, id))
-            .into_any_element()
+        menu.item(
+            PopupMenuItem::element(render)
+                .icon(if command == Command::MountVolume {
+                    IconName::Plug
+                } else {
+                    IconName::Unplug
+                })
+                .disabled(!enabled)
+                .on_click(move |_, window, cx| {
+                    let _ = browser.update(cx, |view, cx| {
+                        view.execute_volume_command(id.clone(), command, window, cx)
+                    });
+                }),
+        )
     }
 
     pub(super) fn prepare_volume_open(menu: &PopupMenu, window: &mut Window, cx: &App) {
@@ -334,7 +359,8 @@ impl Browser {
             .collect();
         let error = service.error.clone();
         let discovering = service.discovering;
-        let width = f32::from(window.bounds().size.width) - self.width() - PAGE_PADDING * 2.;
+        let width =
+            f32::from(window.bounds().size.width) - self.width() - ContentPage::TABLE_INSET * 2.;
         let row_count = rows.len();
         table::VolumeTable::sync(
             &self.volume_table,
@@ -350,6 +376,10 @@ impl Browser {
         let can_unmount = selected
             .as_ref()
             .is_some_and(|id| self.volume_command_enabled(id, Command::UnmountVolume, cx));
+        let can_rename = selected
+            .as_ref()
+            .is_some_and(|id| self.volume_can_rename(id, cx));
+        let on_rename = cx.listener(Self::click_command(Command::Rename));
         let on_mount = cx.listener(Self::click_command(Command::MountVolume));
         let on_unmount = cx.listener(Self::click_command(Command::UnmountVolume));
         let on_refresh = cx.listener(Self::click_command(Command::Refresh));
@@ -368,24 +398,35 @@ impl Browser {
             .borrow()
             .base_handle
             .clone();
-        let list = ui::ListSurface::new("volume-selection-surface", table, row_count, scroll)
-            .on_blank_press(cx.listener(Self::on_list_background_press));
-        el! {
-            .div { # "volumes-page"; flex; flex_col; size_full; min_h_0; min_w_0; px: PAGE_PADDING.px } [
-                .div { flex; items_center; flex_shrink_0; gap: GAP.px; py: GAP.px } [
-                    .div { flex_1; text_lg; font_weight: FontWeight::SEMIBOLD } [$i18n::text("volumes", cx)],
-                    "mount-volume".IconButton::new { icon: IconName::Plug; label: $i18n::text("device-mount", cx); command: Command::MountVolume; disabled: $(!can_mount); on_click: on_mount },
-                    "unmount-volume".IconButton::new { icon: IconName::Unplug; label: $i18n::text("device-unmount", cx); command: Command::UnmountVolume; disabled: $(!can_unmount); on_click: on_unmount },
-                    "refresh-volume-capacity".IconButton::new { icon: IconName::RefreshCw; label: $i18n::text("refresh", cx); command: Command::Refresh; on_click: on_refresh },
-                ],
-                @if (let Some(error) = error)
-                    .div { text_xs; text_color: $cx.theme().danger; whitespace_normal } [error],
-                @else if (discovering)
-                    .div { text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-discovering", cx)],
-                @end,
-                list,
-            ]
-        }.into_any_element()
+        let area = ContentPage::table_area("volume-table-area", table);
+        let list = ui::ListSurface::new(
+            "volume-selection-surface",
+            area.into_any_element(),
+            row_count,
+            scroll,
+        )
+        .inset_x(px(ContentPage::TABLE_INSET))
+        .on_blank_press(cx.listener(Self::on_list_background_press));
+        let actions = vec![
+            el! { "rename-volume".IconButton::new { icon: IconName::TextCursor; label: $i18n::text("rename", cx); command: Command::Rename; disabled: $(!can_rename); on_click: on_rename } }.into_any_element(),
+            el! { "mount-volume".IconButton::new { icon: IconName::Plug; label: $i18n::text("device-mount", cx); command: Command::MountVolume; disabled: $(!can_mount); on_click: on_mount } }.into_any_element(),
+            el! { "unmount-volume".IconButton::new { icon: IconName::Unplug; label: $i18n::text("device-unmount", cx); command: Command::UnmountVolume; disabled: $(!can_unmount); on_click: on_unmount } }.into_any_element(),
+            el! { "refresh-volume-capacity".IconButton::new { icon: IconName::RefreshCw; label: $i18n::text("refresh", cx); command: Command::Refresh; on_click: on_refresh } }.into_any_element(),
+        ];
+        let notice = if let Some(error) = error {
+            Some(
+                el! { .div { text_xs; text_color: $cx.theme().danger; whitespace_normal } [error] }
+                    .into_any_element(),
+            )
+        } else if discovering {
+            Some(el! { .div { text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-discovering", cx)] }.into_any_element())
+        } else {
+            None
+        };
+        ContentPage::new("volumes-page", i18n::text("volumes", cx), list)
+            .actions(actions)
+            .notice(notice)
+            .into_any_element()
     }
 
     pub(in super::super) fn render_device_unavailable(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -401,17 +442,13 @@ impl Browser {
             } else {
                 "volume-default-unavailable"
             };
-            return el! {
-                .div { size_full; flex; flex_col; min_h_0 } [
-                    .div { flex; items_center; px: PAGE_PADDING.px; py: GAP.px } [
-                        .div { flex_1; text_lg } [name],
-                    ],
-                    .div { flex_1; flex; flex_col; justify_center; items_center; gap: GAP.px } [
-                        IconName::HardDrive.Icon::new,
-                        .div { text_sm; text_color: $cx.theme().muted_foreground } [$i18n::text(message, cx)],
-                    ],
+            let body = el! {
+                .div { flex_1; min_h_0; flex; flex_col; justify_center; items_center; gap: GAP.px } [
+                    IconName::HardDrive.Icon::new,
+                    .div { text_sm; text_color: $cx.theme().muted_foreground } [$i18n::text(message, cx)],
                 ]
-            }.into_any_element();
+            };
+            return ContentPage::new("volume-unavailable-page", name, body).into_any_element();
         }
         let location = self.active().and_then(|slot| slot.device.as_ref());
         let unmounted =

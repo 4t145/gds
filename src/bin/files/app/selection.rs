@@ -50,12 +50,13 @@ impl Browser {
         match self.collection {
             Some(Collection::Volumes) => self.selected_volume = None,
             Some(Collection::Trash) => self.trash.clear_selection(),
-            Some(collection @ (Collection::Recent | Collection::Favorites)) => {
+            Some(
+                collection @ (Collection::Recent | Collection::Favorites | Collection::Network),
+            ) => {
                 if let Some(cursor) = self.place_cursor_mut(collection) {
                     cursor.path = None;
                 }
             }
-            Some(Collection::Network) => return,
             None => {
                 if let Some(slot) = self.active_mut() {
                     if let Some(tab) = &mut slot.tab {
@@ -76,6 +77,8 @@ impl Browser {
     /// owns plain arrows, and an open editor owns every keystroke it receives.
     pub(super) fn list_keys_available(&self, window: &mut Window, cx: &mut App) -> bool {
         !self.settings_open
+            && !self.regions.sidebar_focused(window, cx)
+            && !notifications::is_focused(window, cx)
             && !self.menu_open
             && self.keyboard_menu.is_none()
             && self.tab_prefix.is_none()
@@ -162,7 +165,9 @@ impl Browser {
     /// The Recent/Favorites page whose rows the plain arrows move, if visible.
     fn place_collection(&self) -> Option<Collection> {
         match self.collection {
-            Some(collection @ (Collection::Recent | Collection::Favorites)) => Some(collection),
+            Some(
+                collection @ (Collection::Recent | Collection::Favorites | Collection::Network),
+            ) => Some(collection),
             _ => None,
         }
     }
@@ -205,7 +210,7 @@ impl Browser {
         motion: Motion,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(paths) = collection.place_paths(&self.places) else {
+        let Some(paths) = self.place_paths(collection) else {
             return false;
         };
         let current = self
@@ -218,7 +223,12 @@ impl Browser {
         let path = PathBuf::from(&paths[index]);
         if let Some(cursor) = self.place_cursor_mut(collection) {
             cursor.path = Some(path);
-            cursor.scroll.scroll_to_item(index);
+        }
+        if let Some(table) = self.place_table(collection) {
+            table
+                .read(cx)
+                .vertical_scroll_handle
+                .scroll_to_item(index, ScrollStrategy::Nearest);
         }
         cx.notify();
         true
@@ -228,19 +238,22 @@ impl Browser {
     ///
     /// The cursor may name a record the list no longer holds, so the path is
     /// checked against the visible rows first.
-    pub(super) fn open_place_cursor(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn open_place_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(path) = self.selected_place_path() else {
             return;
         };
-        self.collection = None;
-        self.activate_path(path, cx);
+        if self.collection == Some(Collection::Recent) {
+            self.activate_path(path, cx);
+        } else {
+            self.open_tab(path, false, window, cx);
+        }
     }
 
     pub(super) fn selected_place_path(&self) -> Option<PathBuf> {
         let collection = self.place_collection()?;
         let path = self.place_cursor(collection)?.path.clone()?;
-        let listed = collection
-            .place_paths(&self.places)
+        let listed = self
+            .place_paths(collection)
             .is_some_and(|paths| paths.iter().any(|entry| Path::new(entry) == path.as_path()));
         listed.then_some(path)
     }

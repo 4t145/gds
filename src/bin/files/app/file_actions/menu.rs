@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use gds::{actions::Command, i18n, notifications, ui::ShortcutBadge};
+use crate::actions::Command;
+use gds::{desktop, i18n, notifications, ui::ShortcutBadge};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -14,6 +15,7 @@ const MENU_SHORTCUT_GAP: f32 = 24.;
 #[derive(Clone, Copy)]
 enum MenuAction {
     Open,
+    OpenWith,
     OpenDirectories,
     NewFolder,
     Copy,
@@ -30,6 +32,7 @@ impl MenuAction {
     fn command(self) -> Option<Command> {
         match self {
             Self::Open => Some(Command::Open),
+            Self::OpenWith => None,
             Self::OpenDirectories => Some(Command::OpenInNewTab),
             Self::NewFolder => None,
             Self::Copy => Some(Command::Copy),
@@ -45,7 +48,7 @@ impl MenuAction {
 
     fn icon(self) -> Option<IconName> {
         match self {
-            Self::Open => Some(IconName::ExternalLink),
+            Self::Open | Self::OpenWith => Some(IconName::ExternalLink),
             Self::OpenDirectories => Some(IconName::Folder),
             Self::NewFolder => Some(IconName::FolderPlus),
             Self::Copy => Some(IconName::Copy),
@@ -138,7 +141,7 @@ impl DirectoryAction {
             Self::NewFolder => Some(IconName::FolderPlus),
             Self::Paste => Some(IconName::ClipboardPaste),
             Self::Terminal => Some(IconName::Terminal),
-            Self::Refresh => None,
+            Self::Refresh => Some(IconName::RefreshCw),
         }
     }
 
@@ -176,6 +179,8 @@ impl Browser {
         let directory = selection.directories_only;
         let items = MenuItems::new(cx.entity().downgrade(), selection);
         let open = items.item(MenuAction::Open, i18n::text("open", cx));
+        let open_with = (!directory && self.picker.is_none() && cfg!(target_os = "linux"))
+            .then(|| items.item(MenuAction::OpenWith, i18n::text("open-with", cx)));
         let open_in_tab = directory.then(|| {
             items.item(
                 MenuAction::OpenDirectories,
@@ -212,6 +217,7 @@ impl Browser {
         el! {
             menu {
                 item: open;
+                @if (let Some(item) = open_with) item: item; @end;
                 @if (let Some(item) = open_in_tab) item: item; @end;
                 @if (let Some(item) = new_folder) item: item; @end;
                 separator;
@@ -341,6 +347,12 @@ impl Browser {
                 }
                 match action {
                     MenuAction::Open => this.activate_path(selection.paths[0].clone(), cx),
+                    MenuAction::OpenWith => {
+                        let path = selection.paths[0].clone();
+                        if this.device_path_available(&path, cx) {
+                            this.open_path(path, desktop::OpenMode::ChooseApplication, cx);
+                        }
+                    }
                     MenuAction::OpenDirectories => this.open_directories(&selection, window, cx),
                     MenuAction::NewFolder => {
                         this.request_new_folder(selection.paths[0].clone(), window, cx)

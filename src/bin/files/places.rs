@@ -14,8 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::settings::columns::Layout;
 use directories::BaseDirs;
-use gds::settings::columns::Layout;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

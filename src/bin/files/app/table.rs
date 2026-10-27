@@ -1,11 +1,10 @@
+use crate::settings::columns::{Column as LayoutColumn, Layout};
 use std::{collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use fluent_bundle::FluentArgs;
 use gds::time::Timestamp;
 use gds::{
-    i18n,
-    settings::columns::{Column as LayoutColumn, Layout},
-    typography,
+    i18n, typography,
     ui::{DataListStyle, TOOLTIP_DELAY},
 };
 use gds_uim::{el, m};

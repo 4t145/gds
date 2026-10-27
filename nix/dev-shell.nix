@@ -2,7 +2,7 @@
 let
   libraries = with pkgs; [
     wayland libxkbcommon fontconfig freetype openssl zstd zlib
-    libGL vulkan-loader dbus libx11 libxcb
+    libGL vulkan-loader dbus libx11 libxcb alsa-lib
   ];
 in
 pkgs.mkShell {

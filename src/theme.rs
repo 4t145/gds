@@ -161,8 +161,25 @@ impl Global for Material {}
 /// custom palettes, or unsupported/malformed palette data. The previous valid
 /// theme and material settings are retained on every such failure.
 pub fn apply(appearance: &Appearance, cx: &mut App) -> Result<Applied, Error> {
-    let loaded = appearance.load_for(cx.window_appearance())?;
-    apply_loaded(appearance, loaded, cx)
+    appearance.prepare(cx.window_appearance())?.install(cx)
+}
+
+/// A validated desktop palette that can be read away from the UI thread.
+/// Applications can compare snapshots before installing external changes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Prepared {
+    appearance: Appearance,
+    loaded: Loaded,
+}
+
+impl Prepared {
+    /// Install the prepared palette without reading source files again.
+    ///
+    /// # Errors
+    /// Reports invalid surface opacity; the previous palette remains installed.
+    pub fn install(self, cx: &mut App) -> Result<Applied, Error> {
+        apply_loaded(&self.appearance, self.loaded, cx)
+    }
 }
 
 /// Install one fully parsed palette. Shared by the synchronous [`apply`] path
@@ -276,6 +293,7 @@ fn validate_opacity(name: &'static str, value: f32) -> Result<(), Error> {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
 struct Loaded {
     palette: Palette,
     mode: Mode,
@@ -283,6 +301,19 @@ struct Loaded {
 }
 
 impl Appearance {
+    /// Read and validate one complete palette for a known platform appearance.
+    ///
+    /// # Errors
+    /// Reports invalid opacity, unavailable source files or malformed palette data.
+    pub fn prepare(&self, window_appearance: WindowAppearance) -> Result<Prepared, Error> {
+        validate_opacity("content_opacity", self.content_opacity)?;
+        validate_opacity("sidebar_opacity", self.sidebar_opacity)?;
+        Ok(Prepared {
+            appearance: self.clone(),
+            loaded: self.load_for(window_appearance)?,
+        })
+    }
+
     /// Use a known local palette and safe opacity after a source-load failure.
     /// The user's mode preference is retained, without modifying saved settings.
     pub fn builtin_fallback(&self) -> Self {

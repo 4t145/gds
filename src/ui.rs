@@ -15,9 +15,13 @@ pub mod capacity;
 pub mod dialog;
 pub mod keytips;
 pub mod list;
+pub mod page;
+pub mod region;
+pub mod settings;
 pub mod split;
 pub use dialog::DialogActions;
 pub use list::ListSurface;
+pub use page::ContentPage;
 
 pub const SIDEBAR_WIDTH: f32 = 222.0;
 pub const COLLAPSED_SIDEBAR_WIDTH: f32 = 58.0;
@@ -70,24 +74,23 @@ pub struct Shortcut {
     prefix: Option<PrefixTarget>,
 }
 
-/// A key that only runs behind the `Ctrl+Tab` prefix.
-///
-/// Its binding lives in [`TAB_PREFIX_CONTEXT`](crate::actions::TAB_PREFIX_CONTEXT),
-/// so presenting it as a plain Ctrl key would advertise a press that does
-/// something else. The hint layer instead shows the prefix entry followed by the
-/// target (`Tab+3`) while the plain layer is up, and only the target (`3`) while
-/// the prefix is armed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// A shortcut's entry action when it is reached through a keyboard prefix.
+#[derive(Clone)]
 pub struct PrefixTarget {
-    entry: Command,
+    entry: Rc<Shortcut>,
 }
 
 impl PrefixTarget {
-    /// The command that arms the prefix (`Ctrl+Tab`).
-    pub fn entry(self) -> Command {
-        self.entry
+    pub fn entry(&self) -> &Shortcut {
+        &self.entry
     }
 }
+impl PartialEq for PrefixTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.entry.same_scope(&other.entry)
+    }
+}
+impl Eq for PrefixTarget {}
 
 impl Shortcut {
     pub fn new(action: Box<dyn Action>, context: Option<&'static str>) -> Self {
@@ -107,15 +110,17 @@ impl Shortcut {
     }
 
     /// Mark this as a page key that only runs behind the prefix `entry` arms.
-    pub fn via_prefix(mut self, entry: Command) -> Self {
-        self.prefix = Some(PrefixTarget { entry });
+    pub fn via_prefix(mut self, entry: impl Into<Shortcut>) -> Self {
+        self.prefix = Some(PrefixTarget {
+            entry: Rc::new(entry.into()),
+        });
         self
     }
 
     /// The prefix this key belongs behind, for a page key; `None` for an
     /// ordinary shortcut that runs from the plain layer itself.
     pub fn prefix(&self) -> Option<PrefixTarget> {
-        self.prefix
+        self.prefix.clone()
     }
 
     /// Whether both shortcuts name the same action in the same scope, so a
@@ -187,7 +192,7 @@ enum BadgeSource {
 }
 
 impl ShortcutBadge {
-    pub fn new(command: Command) -> Self {
+    pub fn new(command: impl Into<Shortcut>) -> Self {
         Self::bound(command.into())
     }
 
@@ -313,10 +318,10 @@ struct Hint {
 }
 
 impl Hint {
-    fn command(label: SharedString, command: Option<Command>) -> Self {
+    fn command(label: SharedString, command: Option<Shortcut>) -> Self {
         Self {
             label,
-            shortcut: command.map(Shortcut::from),
+            shortcut: command,
         }
     }
 
@@ -349,9 +354,9 @@ impl Hint {
 /// than the one a press runs.
 pub fn command_tooltip(
     label: impl Into<SharedString>,
-    command: Command,
+    command: impl Into<Shortcut>,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    Hint::command(label.into(), Some(command)).builder()
+    Hint::command(label.into(), Some(command.into())).builder()
 }
 
 /// A tooltip holding a control's short label and an already-resolved binding.
@@ -371,7 +376,7 @@ pub struct IconButton {
     id: ElementId,
     button: Button,
     label: SharedString,
-    command: Option<Command>,
+    command: Option<Shortcut>,
     /// A binding outside the workspace command set; it wins when both are set.
     shortcut: Option<Shortcut>,
     disabled: bool,
@@ -402,8 +407,8 @@ impl IconButton {
         self
     }
 
-    pub fn command(mut self, command: Command) -> Self {
-        self.command = Some(command);
+    pub fn command(mut self, command: impl Into<Shortcut>) -> Self {
+        self.command = Some(command.into());
         self
     }
 
@@ -448,7 +453,7 @@ impl RenderOnce for IconButton {
             shortcut,
             disabled,
         } = self;
-        let shortcut = shortcut.or_else(|| command.map(Shortcut::from));
+        let shortcut = shortcut.or(command);
         // A disabled control cannot run its action, so it never advertises a key.
         let hint = match &shortcut {
             Some(shortcut) if !disabled => {
@@ -458,7 +463,7 @@ impl RenderOnce for IconButton {
         };
         let tooltip = match shortcut {
             Some(shortcut) => Hint::shortcut(label, shortcut),
-            None => Hint::command(label, command),
+            None => Hint::command(label, None),
         }
         .builder();
         // The hint's containing block is the button, not a stretched parent row.
@@ -480,7 +485,7 @@ pub struct NavItem {
     icon: IconName,
     label: SharedString,
     compact: bool,
-    command: Option<Command>,
+    command: Option<Shortcut>,
     shortcut: Option<Shortcut>,
     disabled: bool,
     tooltip_text: Option<SharedString>,
@@ -542,8 +547,8 @@ impl NavItem {
         self.button = self.button.disabled(disabled);
         self
     }
-    pub fn command(mut self, command: Command) -> Self {
-        self.command = Some(command);
+    pub fn command(mut self, command: impl Into<Shortcut>) -> Self {
+        self.command = Some(command.into());
         self
     }
 
@@ -605,7 +610,7 @@ impl RenderOnce for NavItem {
                 @if (has_details) h_auto; @else h: SIDEBAR_ITEM_HEIGHT.px; @end;
             } [content]
         };
-        let shortcut = shortcut.or_else(|| command.map(Shortcut::from));
+        let shortcut = shortcut.or(command);
         // A full-width row shows its key in its own trailing space, where it
         // covers no other row; a collapsed row has no such space, so its label
         // becomes a corner badge on the row itself.
@@ -620,7 +625,7 @@ impl RenderOnce for NavItem {
         let tooltip_text = tooltip_text.unwrap_or_else(|| label.clone());
         let tooltip = match shortcut {
             Some(shortcut) => Hint::shortcut(tooltip_text, shortcut),
-            None => Hint::command(tooltip_text, command),
+            None => Hint::command(tooltip_text, None),
         }
         .builder();
         el! {
@@ -647,9 +652,14 @@ impl RenderOnce for NavItem {
 /// pinned: replacing it with a pin would drop what the row points at, and
 /// resizing it would shift the row's label between the two states.
 pub fn pinned_icon(icon: IconName, pinned: bool, cx: &App) -> AnyElement {
+    with_pin(Icon::new(icon).size(px(SIDEBAR_ICON_SIZE)), pinned, cx)
+}
+
+/// Apply the same corner marker to an application-provided navigation icon.
+pub fn with_pin(icon: impl IntoElement, pinned: bool, cx: &App) -> AnyElement {
     el! {
         .div { relative; flex_shrink_0; size: SIDEBAR_ICON_SIZE.px } [
-            icon.Icon::new { size: SIDEBAR_ICON_SIZE.px },
+            $(icon),
             @if (pinned)
                 .div {
                     absolute; right_0; bottom_0;

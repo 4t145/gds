@@ -8,15 +8,21 @@
 //! column. Queue, lifetime, close and id-replacement behaviour still come from
 //! Kit; only the presentation is ours.
 
+mod interaction;
+pub use interaction::{close_all, close_current, focus, is_focused};
+
+use std::collections::HashSet;
+
 use gds_uim::el;
 use gpui_kit::base::ScrollableMask;
 use gpui_kit::component::notification::{Notification, NotificationList};
 use gpui_kit::component::{ActiveTheme, Edges, Theme, WindowExt};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     Anchor, AnyElement, AnyWindowHandle, App, AppContext, Axis, Context, Div, ElementId, Entity,
-    FontWeight, Global, InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
-    div, px,
+    EntityId, FocusHandle, FontWeight, Global, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window, div, px,
 };
 
 use crate::{i18n, ui};
@@ -47,6 +53,7 @@ const CARD_CHROME_HEIGHT: f32 = 30.;
 /// The id every toast text area shares, so its scroll position and hit area
 /// survive re-renders. Each notification's own wrapper scopes it.
 const CONTENT_ID: &str = "gds-notification-content";
+const COMPACT_VIEWPORT_HEIGHT: f32 = 160.;
 /// Wheel mask over one toast's text area.
 ///
 /// Kit's card occludes the pointer, so an ancestor scroll area never sees the
@@ -94,7 +101,7 @@ impl Global for Host {}
 /// root view.
 pub fn bind_window(window: &mut Window, cx: &mut App) {
     let list = cx.new(|cx| NotificationList::new(window, cx));
-    let overlay = cx.new(|cx| Overlay::new(list.clone(), cx));
+    let overlay = cx.new(|cx| Overlay::new(list.clone(), window, cx));
     let host = cx.default_global::<Host>();
     host.window = Some(window.window_handle());
     host.list = Some(list);
@@ -341,15 +348,45 @@ impl Operation {
 pub struct Overlay {
     list: Entity<NotificationList>,
     scroll: ScrollHandle,
+    focus: FocusHandle,
+    return_focus: Option<FocusHandle>,
+    selected: Option<EntityId>,
+    selected_index: usize,
+    closing: HashSet<EntityId>,
     _list_changes: Subscription,
 }
 
 impl Overlay {
-    fn new(list: Entity<NotificationList>, cx: &mut Context<Self>) -> Self {
-        let _list_changes = cx.observe(&list, |_, _, cx| cx.notify());
+    /// Create an independent notification queue for a window.
+    /// Multi-window applications retain and mount this entity in that window.
+    pub fn for_window(window: &mut Window, cx: &mut App) -> Entity<Self> {
+        let list = cx.new(|cx| NotificationList::new(window, cx));
+        cx.new(|cx| Self::new(list, window, cx))
+    }
+
+    /// Number of mounted notices, including ones finishing their close animation.
+    pub fn count(&self, cx: &App) -> usize {
+        self.list.read(cx).notifications().len()
+    }
+
+    /// Mount or replace a notice in this window's queue.
+    pub fn push(&mut self, note: Notification, window: &mut Window, cx: &mut Context<Self>) {
+        self.list.update(cx, |list, cx| list.push(note, window, cx));
+    }
+
+    fn new(list: Entity<NotificationList>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let _list_changes = cx.observe_in(&list, window, |this, _, window, cx| {
+            this.sync_selection(window, cx);
+            cx.notify();
+        });
         Self {
             list,
             scroll: ScrollHandle::new(),
+            focus: cx.focus_handle(),
+            return_focus: None,
+            selected: None,
+            selected_index: 0,
+            closing: HashSet::new(),
             _list_changes,
         }
     }
@@ -368,15 +405,67 @@ impl Render for Overlay {
             settings.margins.right,
             settings.margins.bottom,
         );
-        let width = settings.width;
+        // A compact popup has no toolbar and still needs room for a whole card.
+        let top = if window.viewport_size().height < px(COMPACT_VIEWPORT_HEIGHT) {
+            px(4.)
+        } else {
+            top
+        };
+        let right = right.min(window.viewport_size().width / 2.);
+        let width = settings
+            .width
+            .min(window.viewport_size().width - right * 2.);
         let height = column_height(window.viewport_size().height, top, bottom);
-        let cards = notes.into_iter().map(|note| {
-            let id = ElementId::from(("gds-notification", note.entity_id()));
-            div().id(id).w_full().flex_shrink_0().child(note)
-        });
+        let active = self.focus.contains_focused(window, cx);
+        let target = if active {
+            self.selected
+        } else {
+            self.available(cx).last().map(|note| note.entity_id())
+        };
+        let cards: Vec<_> = notes
+            .into_iter()
+            .map(|note| {
+                let id = ElementId::from(("gds-notification", note.entity_id()));
+                let current = target == Some(note.entity_id());
+                let close_hint = current.then(|| {
+                    ui::keytips::anchor(
+                        window,
+                        cx,
+                        ("notification-close-hint", note.entity_id()).into(),
+                        crate::actions::Command::CloseNotification.into(),
+                    )
+                });
+                div()
+                    .id(id)
+                    .relative()
+                    .w_full()
+                    .flex_shrink_0()
+                    .child(note)
+                    .children(close_hint)
+                    .when(active && current, |card| {
+                        card.child(ui::region::focus_ring(cx))
+                    })
+            })
+            .collect();
+        let focus_hint = ui::keytips::anchor(
+            window,
+            cx,
+            "notifications-focus-hint".into(),
+            crate::actions::Command::FocusNotifications.into(),
+        );
+        let close_all = ui::keytips::anchor(
+            window,
+            cx,
+            "notifications-close-all-hint".into(),
+            crate::actions::Command::CloseAllNotifications.into(),
+        );
         el! {
             .div {
                 # "gds-notification-overlay";
+                track_focus: $&self.focus;
+                key_context: "Notifications";
+                on_key_down: (cx, Self::on_key_down).Context::listener;
+                on_action: (cx, Self::on_cancel).Context::listener;
                 absolute; top: top; right: right;
                 w: width; max_h: height;
                 flex; flex_col;
@@ -389,6 +478,8 @@ impl Render for Overlay {
                     track_scroll: $(&self.scroll);
                 } [..cards],
                 $(ScrollableMask::new(Axis::Vertical, &self.scroll).id(COLUMN_MASK_ID)),
+                focus_hint,
+                close_all,
             ]
         }
         .into_any_element()

@@ -7,7 +7,7 @@
 图形预览，截图标注
 
 ## Agents （Ag）
-Bas的一个图形化前端，已做基本功能，待统一风格并且接入
+Bas 的图形化前端，已接入 `gds-agents` 编译目标，正在统一设计语言；进度见 [迁移记录](apps/agents/migration.md)。
 
 ## NixosSystem （Ni）
 NixOS的可视化管理界面，系统管理

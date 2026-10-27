@@ -123,6 +123,13 @@ window-rule {
 注册 D-Bus 按需激活服务，并把 FileChooser 接口的首选后端设置为 `gds`。
 GTK 回退直接调用 GTK 后端，不会再次经过 GDS，也不会产生递归。
 
+Files 的文件右键菜单提供“打开方式…”，通过 OpenURI Portal 的 `OpenFile`
+和 `ask=true` 打开系统应用选择器。模块同时将 AppChooser 首选后端设置为
+`gtk`，以支持 Niri 等非 GNOME 会话；已有用户 Portal 配置仍可覆盖此设置。
+手动配置 Portal 时，可在对应的 `portals.conf` 的 `[preferred]` 中设置
+`org.freedesktop.impl.portal.AppChooser=gtk`。取消选择不会新增最近打开记录。
+接口依据：[OpenURI / OpenFile](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html)。
+
 | 请求 | 使用的界面 |
 | --- | --- |
 | 单个已有文件，无过滤器或可表示的 glob 过滤器 | GDS Files |

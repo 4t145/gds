@@ -14,11 +14,20 @@
           files = pkgs.callPackage ./nix/package.nix { };
         in {
           gds-files = files;
+          gds-agents = pkgs.callPackage ./nix/package.nix { application = "agents"; };
           xdg-desktop-portal-gds = pkgs.callPackage ./nix/portal.nix { gds-files = files; };
           default = files;
         });
 
       apps = forEachSystem (system: {
+        gds-files = {
+          type = "app";
+          program = "${self.packages.${system}.gds-files}/bin/gds-files";
+        };
+        gds-agents = {
+          type = "app";
+          program = "${self.packages.${system}.gds-agents}/bin/gds-agents";
+        };
         default = {
           type = "app";
           meta.description = "GDS Files";
@@ -28,6 +37,7 @@
 
       nixosModules = {
         gds-files = import ./nix/nixos-module.nix self;
+        gds-agents = import ./nix/agents-module.nix self;
         default = self.nixosModules.gds-files;
       };
 

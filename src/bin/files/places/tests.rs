@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use gds::settings::columns::{Column, Layout};
+use crate::settings::columns::{Column, Layout};
 
 use super::*;
 

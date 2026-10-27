@@ -24,7 +24,7 @@ impl Pages {
         // installed before the page is displayed; an empty root never loads.
         self.entries.push(Page {
             volume: volume.clone(),
-            slot: OpenTab::new(id, root.unwrap_or_else(|| Path::new("")).into(), false),
+            slot: OpenTab::fixed(id, root.unwrap_or_else(|| Path::new("")).into()),
         });
         id
     }

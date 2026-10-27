@@ -1,18 +1,22 @@
+mod actions;
 mod app;
 mod directory;
 mod file_clipboard;
+mod i18n;
 mod navigation;
 mod operations;
 mod picker;
 mod places;
+mod settings;
 mod sorting;
+mod storage;
 
 use std::process::ExitCode;
 
 use anyhow::Context as _;
 use directories::BaseDirs;
 use fluent_bundle::FluentArgs;
-use gds::{actions, i18n, settings, theme, time, typography};
+use gds::{theme, time, typography, ui};
 use gpui_kit::*;
 
 const APP_ID: &str = "io.github.fourt145.GdsFiles";

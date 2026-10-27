@@ -279,9 +279,9 @@ impl Browser {
         let moved = match self.collection {
             Some(Collection::Volumes) => self.move_volume_cursor(motion, cx),
             Some(Collection::Trash) => self.move_trash_cursor(motion, false, cx),
-            Some(collection @ (Collection::Recent | Collection::Favorites)) => {
-                self.move_place_cursor(collection, motion, cx)
-            }
+            Some(
+                collection @ (Collection::Recent | Collection::Favorites | Collection::Network),
+            ) => self.move_place_cursor(collection, motion, cx),
             _ => false,
         };
         if moved {
@@ -457,6 +457,7 @@ impl Browser {
             LocationTarget::Home => this.show_home(window, cx),
             LocationTarget::Recent => this.show_collection(Collection::Recent, window, cx),
             LocationTarget::Favorites => this.show_collection(Collection::Favorites, window, cx),
+            LocationTarget::Volumes => this.show_collection(Collection::Volumes, window, cx),
             LocationTarget::Network => this.show_collection(Collection::Network, window, cx),
             LocationTarget::Trash => this.show_collection(Collection::Trash, window, cx),
         }
@@ -473,15 +474,6 @@ impl Browser {
                 this.navigate(path.clone(), cx);
                 this.focus.focus(window, cx);
             }
-        }
-    }
-
-    pub(super) fn click_place(
-        path: PathBuf,
-    ) -> impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) {
-        move |this, _, _, cx| {
-            this.collection = None;
-            this.activate_path(path.clone(), cx);
         }
     }
 
@@ -503,15 +495,6 @@ impl Browser {
     ) {
         cx.stop_propagation();
         self.open_columns_editor(window, cx);
-    }
-
-    pub(super) fn on_clear_recent(
-        &mut self,
-        _: &ClickEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.clear_recent(cx);
     }
 
     pub(super) fn menu_command(

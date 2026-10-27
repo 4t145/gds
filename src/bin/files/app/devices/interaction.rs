@@ -87,7 +87,7 @@ impl Browser {
             return;
         }
         match command {
-            Command::MountVolume => self.start_device_removal(DeviceAction::Mount(id), cx),
+            Command::MountVolume => self.start_device_operation(DeviceAction::Mount(id), cx),
             Command::UnmountVolume => {
                 self.request_device_removal(DeviceAction::Unmount(id), window, cx)
             }

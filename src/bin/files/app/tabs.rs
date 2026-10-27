@@ -2,13 +2,13 @@
 //!
 //! `Ctrl+Tab` and `Ctrl+Shift+Tab` arm a prefix instead of switching pages
 //! immediately. While it is armed the focused view also carries
-//! [`TAB_PREFIX_CONTEXT`], where `H`/`R`/`D`/`N`/`B` open the fixed location
+//! [`TAB_PREFIX_CONTEXT`], where `H`/`R`/`D`/`V`/`N`/`B` open the fixed location
 //! pages and `1`-`9` open an ordinary tab by its strip position. A release of
 //! Tab without a target key cycles exactly one page; a target key consumes the
 //! prefix, so releasing Tab afterwards neither cycles again nor replays the
 //! target.
 //!
-//! The fixed pages (Home, Recent, Favorites, Network, Trash) are not ordinary
+//! The fixed pages (Home, Recent, Favorites, Volumes, Network, Trash) are not ordinary
 //! tabs. Home keeps its own directory state in [`Browser::home_tab`] so the
 //! table, its selection and its refresh really read the home directory, and
 //! opening a folder from it starts an ordinary tab instead of moving Home.
@@ -31,6 +31,7 @@ pub(super) enum Target {
     Home,
     Recent,
     Favorites,
+    Volumes,
     Network,
     Trash,
     /// Zero-based strip position of an ordinary tab.
@@ -119,6 +120,7 @@ impl Browser {
             Target::Home => self.show_home(window, cx),
             Target::Recent => self.show_collection(Collection::Recent, window, cx),
             Target::Favorites => self.show_collection(Collection::Favorites, window, cx),
+            Target::Volumes => self.show_collection(Collection::Volumes, window, cx),
             Target::Network => self.show_collection(Collection::Network, window, cx),
             Target::Trash => self.open_trash(window, cx),
             Target::Tab(index) => {
@@ -185,6 +187,9 @@ impl Browser {
             | Collection::Network
             | Collection::Volumes => {
                 self.collection = Some(collection);
+                if collection == Collection::Network && !self.network.loaded {
+                    self.refresh_network(cx);
+                }
                 cx.notify();
             }
         }
@@ -196,6 +201,7 @@ impl Browser {
             LocationTarget::Home => self.home_active(),
             LocationTarget::Recent => self.collection == Some(Collection::Recent),
             LocationTarget::Favorites => self.collection == Some(Collection::Favorites),
+            LocationTarget::Volumes => self.collection == Some(Collection::Volumes),
             LocationTarget::Network => self.collection == Some(Collection::Network),
             LocationTarget::Trash => self.collection == Some(Collection::Trash),
         }
@@ -241,6 +247,7 @@ impl Browser {
             Target::Favorites
         ),
         (on_tab_prefix_network, TabPrefixNetwork, Target::Network),
+        (on_tab_prefix_volumes, TabPrefixVolumes, Target::Volumes),
         (on_tab_prefix_trash, TabPrefixTrash, Target::Trash),
         (on_tab_prefix_1, TabPrefix1, Target::Tab(0)),
         (on_tab_prefix_2, TabPrefix2, Target::Tab(1)),
@@ -264,6 +271,7 @@ pub(super) fn location_shortcut(target: LocationTarget) -> ui::Shortcut {
         LocationTarget::Home => Box::new(TabPrefixHome),
         LocationTarget::Recent => Box::new(TabPrefixRecent),
         LocationTarget::Favorites => Box::new(TabPrefixFavorites),
+        LocationTarget::Volumes => Box::new(TabPrefixVolumes),
         LocationTarget::Network => Box::new(TabPrefixNetwork),
         LocationTarget::Trash => Box::new(TabPrefixTrash),
     };

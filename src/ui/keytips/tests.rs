@@ -13,7 +13,7 @@ fn bounds(x: f32) -> Bounds<Pixels> {
 }
 
 fn shortcut() -> Shortcut {
-    crate::actions::Command::Refresh.into()
+    crate::actions::Command::FocusNotifications.into()
 }
 
 fn binding(keystrokes: &str) -> KeyBinding {
