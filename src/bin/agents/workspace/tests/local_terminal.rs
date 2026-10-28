@@ -134,6 +134,90 @@ async fn panels_start_on_reveal_and_survive_hiding_and_directory_switches(cx: &m
 
 #[cfg(unix)]
 #[gpui_kit::test]
+async fn terminal_navigation_is_nested_in_its_workspace_and_dock_does_not_split_sidebar(
+    cx: &mut TestAppContext,
+) {
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("workspace terminal directories");
+    let first_cwd = directory.path().join("first");
+    let second_cwd = directory.path().join("second");
+    std::fs::create_dir(&first_cwd).expect("first workspace");
+    std::fs::create_dir(&second_cwd).expect("second workspace");
+    let fixture = fixture(cx);
+    let first = cx
+        .update_window(fixture.window.into(), |_, window, cx| {
+            let first = fixture.view.update(cx, |view, cx| {
+                view.backend.server =
+                    bas::service::Target::Unix("/tmp/terminal-test.sock".into()).into();
+                view.navigation.directories = vec![first_cwd.clone(), second_cwd.clone()];
+                view.navigation.selected_directory = Some(first_cwd.clone());
+                view.toggle_terminal(window, cx);
+                view.terminal_panel()
+                    .expect("first workspace provides its panel")
+            });
+            window.render_frame(cx);
+            let group = window.find("workspace-header-0").bounds();
+            let terminals = window.find("workspace-terminals").bounds();
+            let dock = window.find("local-terminal-dock").bounds();
+            assert!(
+                terminals.origin.y > group.origin.y,
+                "terminal controls belong below workspace heading"
+            );
+            assert!(
+                terminals.right() <= px(SIDEBAR_WIDTH),
+                "controls remain inside workspace navigation"
+            );
+            assert!(
+                dock.origin.x >= px(SIDEBAR_WIDTH),
+                "terminal content never takes over application sidebar"
+            );
+            first
+        })
+        .expect("workspace-owned terminal layout");
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.navigation.selected_directory = Some(second_cwd.clone());
+            view.sync_terminal_panel(window, cx);
+            let second = view.terminal_panel().expect("second workspace panel");
+            assert_ne!(first.entity_id(), second.entity_id());
+            assert!(
+                view.render_workspace_terminals(Some(&first_cwd), cx)
+                    .is_none()
+            );
+            assert!(
+                view.render_workspace_terminals(Some(&second_cwd), cx)
+                    .is_some()
+            );
+            view.navigation.selected_directory = Some(first_cwd.clone());
+            assert_eq!(
+                view.terminal_panel()
+                    .expect("retained first panel")
+                    .entity_id(),
+                first.entity_id()
+            );
+            assert!(
+                view.render_workspace_terminals(Some(&first_cwd), cx)
+                    .is_some()
+            );
+            assert!(
+                view.render_workspace_terminals(Some(&second_cwd), cx)
+                    .is_none()
+            );
+        });
+    })
+    .expect("directory switch retains terminal owner");
+    let shutdowns = cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |view, cx| view.shutdown_terminals(cx))
+    });
+    for shutdown in shutdowns {
+        shutdown.await;
+    }
+}
+
+#[cfg(unix)]
+#[gpui_kit::test]
 async fn terminal_tabs_keep_workspace_shortcuts_out_and_f6_restores_composer(
     cx: &mut TestAppContext,
 ) {

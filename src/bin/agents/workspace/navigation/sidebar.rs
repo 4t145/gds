@@ -78,6 +78,9 @@ impl Workspace {
                     let draft_selected = self.navigation.view == View::Workspaces
                         && self.selected.id.is_none()
                         && self.navigation.selected_directory == directory;
+                    let terminals = (!collapsed)
+                        .then(|| self.render_workspace_terminals(directory.as_deref(), cx))
+                        .flatten();
                     let header = self.workspace_header(index, directory, collapsed, cx);
                     let draft =
                         (!collapsed && draft_selected).then(|| self.draft_thread_row(index, cx));
@@ -104,6 +107,7 @@ impl Workspace {
                                 ..empty,
                                 ..threads,
                             ],
+                            ..terminals,
                         ]
                     }
                     .into_any_element()

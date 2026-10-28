@@ -1,5 +1,7 @@
 use super::{NewTerminal, Panel, Preferences};
-use gpui_kit::{AppContext, Entity, TestAppContext, component::Root, px, size};
+use gpui_kit::{
+    AppContext, Entity, TestAppContext, component::Root, px, size, test::TestWindowExt,
+};
 
 #[cfg(unix)]
 #[gpui_kit::test]
@@ -48,6 +50,51 @@ async fn shell_title_changes_notify_the_host_caption(cx: &mut TestAppContext) {
         .expect("start caption shell");
     changed.await.expect("OSC title reaches panel observers");
     let shutdown = cx.update(|cx| panel.update(cx, |panel, cx| panel.shutdown(cx)));
+    shutdown.await;
+}
+
+#[gpui_kit::test]
+async fn empty_dock_keeps_management_focus_without_workspace_sidebar(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init_default(cx);
+        super::super::bind_keys(cx);
+    });
+    let directory = tempfile::tempdir().expect("empty workspace terminal directory");
+    let mut panel = None;
+    let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
+        let view = cx.new(Panel::new);
+        panel = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let panel = panel.expect("workspace panel");
+    let shutdown = cx
+        .update_window(window.into(), |_, window, cx| {
+            panel.update(cx, |panel, cx| {
+                panel.set_preferences(
+                    Preferences {
+                        shell: Some(directory.path().join("missing-test-shell")),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                panel.set_cwd(Some(directory.path().to_path_buf()), cx);
+                panel.focus(window, cx);
+            });
+            window.render_frame(cx);
+            assert!(panel.read(cx).contains_focus(window, cx));
+            window.press("ctrl-n", cx);
+            panel.update(cx, |panel, cx| {
+                assert_eq!(
+                    panel.entries.len(),
+                    1,
+                    "empty dock management works without navigation tabs"
+                );
+                panel.shutdown(cx)
+            })
+        })
+        .expect("empty dock focus routing");
     shutdown.await;
 }
 
