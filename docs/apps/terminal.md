@@ -41,7 +41,7 @@ Agents：每工作目录终端集合、页签 / Dock UI、管理快捷键、关�
 ## Agents
 
 - 每个连接与工作目录对应的 workspace 持有终端集合、活动实例及 dock 分隔尺寸，不存放在会随对话切换而重置的选中对话状态中。切换 workspace 后恢复各自实例与实时标题。
-- 终端 section 与实例列表嵌在所属 workspace 的导航组中；PTY dock 仅拆分右侧工作内容区，不在整个应用侧栏下方另设独立区域。折叠导航组不结束终端；侧栏收起时仍可用 dock 标题栏的新建按钮。
+- 终端 section 与实例列表嵌在所属 workspace 的导航组中；PTY dock 仅拆分右侧工作内容区，不在整个应用侧栏下方另设独立区域。折叠导航组不结束终端；dock 标题栏始终提供当前 workspace 的终端切换菜单、关闭当前实例与新建按钮，即使在历史／收藏视图、侧栏隐藏、导航组折叠或搜索过滤时也可管理已有实例，操作不改变其它 workspace。
 - dock 不再提供设置齿轮快捷入口；设置中心的终端配置页仍保留。
 - 第一阶段只允许明确的本地 IPC 上下文。TCP（包括 loopback）不会仅因地址像本机就获得本地执行能力；远程 Agent cwd 不会被拿到 GDS 主机执行。
 - 紧凑模式打开终端时切换到完整工作区。设置页、连接切换和对话归档不结束工作区 shell。
@@ -79,7 +79,7 @@ Nix 包和开发环境提供 `xterm-256color` 的 terminfo，并保留用户的 
 - 默认背景由 Grid 按 GDS 的 content 材质绘制一次。普通默认 cell 不再填背景，应用的多终端布局不在 Grid 下方重复铺底；显式 ANSI 背景、反色、选择和光标是独立绘制层。Dim 改变 RGB，不降低文字 alpha。
 - 默认前景、背景、选择和 ANSI 语义色跟随当前主题；OSC 颜色查询与显示使用同一调色板，并在 shell 启动前提供初始值。
 - 公共层只提供单终端实例：异步启动、PTY 生命周期、画面、输入、选择与滚屏。终端集合、活动实例、新建 / 关闭 / 切换动作、页签 UI、Dock 和关闭策略均由各应用拥有；布局复用通用 `ui::Frame` / `ui::split`，不提供共用终端工作台。
-- 公共层暴露 Copy / Paste / Scroll 能力动作，但不注册快捷键；F6 等宿主导航也不是终端事件。应用显式绑定自己的按键；未被宿主消费的按键按终端协议传给前台程序。
+- 公共层暴露 Copy / Paste / Scroll 能力动作，由应用显式绑定自己的按键；F6 等宿主导航不是终端事件。公共初始化只为 `GdsTerminal` 安装 Tab / Shift+Tab 的 `NoAction` 路由例外，阻止 Kit Root 提前把按键作为焦点遍历处理，让原始事件到达 PTY 编码器；终端外部保留正常遍历。未被宿主消费的按键按终端协议传给前台程序。
 
 ## 验收清单
 
@@ -115,3 +115,13 @@ Nix 包和开发环境提供 `xterm-256color` 的 terminfo，并保留用户的 
 宿主统一使用“新建终端 / New terminal”作为按钮与 tooltip 文案。终端区域不重复提供设置齿轮，字体、字号和 Shell 等仍从应用设置中心的终端页配置。侧栏 section 文字使用公共 `SIDEBAR_PADDING` 与 `SIDEBAR_SECTION_PADDING`；终端窗口标题与 PTY 网格共用来自内容行间距的 `TERMINAL_CONTENT_INSET`，不随 UI 字号的 rem 换算产生不同边缘。代码布局检查不等于原生画面对齐验收；第二轮真实 GUI / 实机验证状态应单独记录。
 
 重构后的原生画面使用默认 `monospace` 偏好、账户 shell、正常 rc 和半透明主题，展示了正常字距、中文 / 组合字符 / 彩色符号及无转义残留的提示符。此结果不替代仍未完成的 Wayland 实机 IME 与跨平台支持工作。
+
+## 第二轮焦点与布局验证边界
+
+功能合并提交 `960b2c2`（在上一轮 `641771c` 上继续）的验证结果：
+
+- Nix 开发环境内 `cargo build --bins --features agents --locked` 通过，两应用二进制均构建成功；`cargo test --workspace --features gui-tests --locked` 共 **719 项通过、2 项原有性能测试忽略**（共享库 92、Agents 425、Files 200、derive 2）。`cargo fmt --all --check` 与 `git diff --check` 通过，保留原有 dead-code 警告。
+- 关键行为覆盖 workspace 实例／标题／分隔尺寸保留、隐藏时启动取消及清理屏障，以及侧栏缺少终端行时由 dock 菜单切换／关闭同一实例。Files 覆盖选中实例隔离、保留 shell PID 的显式切目录、路径转义／拒绝危险控制字符、前台作业拒绝与虚拟目录不回退 Home。shell 提示符是否为空及命令执行是否成功仍按上文限制处理。
+- Tab 回归先在旧路由上复现“终端失去焦点”，再通过终端专用路由例外修复。GPUI 测试窗口实际分发 Tab / Shift+Tab 到真实 PTY，断言收到 `09` / `1b5b5a`，焦点仍在输入区；外部控件的正向／反向焦点遍历继续有效。另用交互式、启用 readline 的 Bash 验证部分文件名经 Tab 补全后能读取目标内容，不只是单测按键编码函数。
+- 布局代码使用宿主公共间距：Files 终端 section 与 Tabs / Locations 均为侧栏外层 10px 加标签内层 6px；Agents 所属 workspace 下的终端 section 与主侧栏 section 同样复用这两层间距。两应用终端窗口标题与网格使用内容行公共 12px 基准，分栏线是覆盖层，不额外占用内容宽度。中文／英文新建入口同为“新建终端 / New terminal”。
+- **本轮 Tab 补全和边线对齐未做真实原生 GUI / Wayland 实机验证。** 执行环境未提供 `DISPLAY` / `WAYLAND_DISPLAY`。上述焦点测试是 headless GPUI 测试窗口加真实子进程，不是屏幕录制、像素验收或用户桌面实机通过；历史原生截图也不能代替本轮改动的验收。
