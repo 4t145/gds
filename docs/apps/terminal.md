@@ -108,4 +108,6 @@ Nix 包和开发环境提供 `xterm-256color` 的 terminfo，并保留用户的 
 
 默认 shell 误选的根因是 `$SHELL` 被 Nix 注入为缺少 readline / programmable completion 的 Bash 构建；`progcomp` 错误和字面 `\\[ / \\]` 均由此产生。现在显式配置优先，默认走账户 shell，并正常读取 rc，不通过关闭 rc 或过滤提示符掩盖问题。
 
+宿主统一使用“新建终端 / New terminal”作为按钮与 tooltip 文案。终端区域不重复提供设置齿轮，字体、字号和 Shell 等仍从应用设置中心的终端页配置。侧栏 section 文字使用公共 `SIDEBAR_PADDING` 与 `SIDEBAR_SECTION_PADDING`；终端窗口标题与 PTY 网格共用来自内容行间距的 `TERMINAL_CONTENT_INSET`，不随 UI 字号的 rem 换算产生不同边缘。代码布局检查不等于原生画面对齐验收；第二轮真实 GUI / 实机验证状态应单独记录。
+
 重构后的原生画面使用默认 `monospace` 偏好、账户 shell、正常 rc 和半透明主题，展示了正常字距、中文 / 组合字符 / 彩色符号及无转义残留的提示符。此结果不替代仍未完成的 Wayland 实机 IME 与跨平台支持工作。
