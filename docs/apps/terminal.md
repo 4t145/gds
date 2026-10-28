@@ -118,6 +118,10 @@ Nix 包和开发环境提供 `xterm-256color` 的 terminfo，并保留用户的 
 
 ## 第二轮焦点与布局验证边界
 
+功能合并提交 `960b2c2`（在上一轮 `641771c` 上继续）的验证结果：
+
+- Nix 开发环境内 `cargo build --bins --features agents --locked` 通过，两应用二进制均构建成功；`cargo test --workspace --features gui-tests --locked` 共 **719 项通过、2 项原有性能测试忽略**（共享库 92、Agents 425、Files 200、derive 2）。`cargo fmt --all --check` 与 `git diff --check` 通过，保留原有 dead-code 警告。
+- 关键行为覆盖 workspace 实例／标题／分隔尺寸保留、隐藏时启动取消及清理屏障，以及侧栏缺少终端行时由 dock 菜单切换／关闭同一实例。Files 覆盖选中实例隔离、保留 shell PID 的显式切目录、路径转义／拒绝危险控制字符、前台作业拒绝与虚拟目录不回退 Home。shell 提示符是否为空及命令执行是否成功仍按上文限制处理。
 - Tab 回归先在旧路由上复现“终端失去焦点”，再通过终端专用路由例外修复。GPUI 测试窗口实际分发 Tab / Shift+Tab 到真实 PTY，断言收到 `09` / `1b5b5a`，焦点仍在输入区；外部控件的正向／反向焦点遍历继续有效。另用交互式、启用 readline 的 Bash 验证部分文件名经 Tab 补全后能读取目标内容，不只是单测按键编码函数。
 - 布局代码使用宿主公共间距：Files 终端 section 与 Tabs / Locations 均为侧栏外层 10px 加标签内层 6px；Agents 所属 workspace 下的终端 section 与主侧栏 section 同样复用这两层间距。两应用终端窗口标题与网格使用内容行公共 12px 基准，分栏线是覆盖层，不额外占用内容宽度。中文／英文新建入口同为“新建终端 / New terminal”。
 - **本轮 Tab 补全和边线对齐未做真实原生 GUI / Wayland 实机验证。** 执行环境未提供 `DISPLAY` / `WAYLAND_DISPLAY`。上述焦点测试是 headless GPUI 测试窗口加真实子进程，不是屏幕录制、像素验收或用户桌面实机通过；历史原生截图也不能代替本轮改动的验收。
