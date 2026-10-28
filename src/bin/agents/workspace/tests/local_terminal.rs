@@ -218,6 +218,115 @@ async fn terminal_navigation_is_nested_in_its_workspace_and_dock_does_not_split_
 
 #[cfg(unix)]
 #[gpui_kit::test]
+async fn dock_switch_and_close_work_without_sidebar_terminal_controls(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("workspace terminal control directory");
+    let cwd = directory.path().to_path_buf();
+    let fixture = fixture(cx);
+    let panel = cx
+        .update_window(fixture.window.into(), |_, window, cx| {
+            fixture.view.update(cx, |view, cx| {
+                view.backend.server =
+                    bas::service::Target::Unix("/tmp/terminal-test.sock".into()).into();
+                view.navigation.directories = vec![cwd.clone()];
+                view.navigation.selected_directory = Some(cwd.clone());
+                view.terminals.visible = true;
+                view.sync_terminal_panel(window, cx);
+                let panel = view.terminal_panel().expect("workspace panel");
+                panel.update(cx, |panel, cx| {
+                    panel.set_preferences(
+                        gds::terminal::Preferences {
+                            shell: Some(cwd.join("missing-test-shell")),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    panel.open(cwd.clone(), window, cx);
+                });
+                panel
+            })
+        })
+        .expect("one workspace terminal");
+    let first_id = cx.update(|cx| panel.read(cx).active_id().expect("initial terminal"));
+    for (view_mode, sidebar_visible, collapsed, filtered) in [
+        (workspace_navigation::View::History, true, false, false),
+        (workspace_navigation::View::Bookmarks, true, false, false),
+        (workspace_navigation::View::Workspaces, false, false, false),
+        (workspace_navigation::View::Workspaces, true, true, false),
+        (workspace_navigation::View::Workspaces, true, false, true),
+    ] {
+        cx.update_window(fixture.window.into(), |_, window, cx| {
+            fixture.view.update(cx, |view, cx| {
+                view.navigation.view = view_mode;
+                view.window.sidebar_visible = sidebar_visible;
+                view.navigation.collapsed.clear();
+                if collapsed {
+                    view.navigation.collapsed.insert(Some(cwd.clone()));
+                }
+                view.navigation.search.update(cx, |input, cx| {
+                    input.set_value(
+                        if filtered {
+                            "unmatched-workspace-filter"
+                        } else {
+                            ""
+                        },
+                        window,
+                        cx,
+                    )
+                });
+                cx.notify();
+            });
+            window.render_frame(cx);
+            assert!(window.try_find("agents-terminal-tabs").is_none());
+            assert!(window.find("choose-local-terminal").visible());
+            assert!(window.find("close-local-terminal").visible());
+            window.click("new-local-terminal", cx);
+            assert_eq!(panel.read(cx).choices(cx).len(), 2);
+            assert_ne!(panel.read(cx).active_id(), Some(first_id));
+            window.click("choose-local-terminal", cx);
+            window.press("down", cx);
+            window.press("enter", cx);
+        })
+        .expect("select existing terminal from dock");
+        cx.run_until_parked();
+        cx.update_window(fixture.window.into(), |_, window, cx| {
+            assert_eq!(panel.read(cx).active_id(), Some(first_id));
+            assert_eq!(
+                panel.read(cx).choices(cx).len(),
+                2,
+                "selection never creates a terminal"
+            );
+            window.click("choose-local-terminal", cx);
+            window.press("down", cx);
+            window.press("down", cx);
+            window.press("enter", cx);
+        })
+        .expect("select the other existing terminal");
+        cx.run_until_parked();
+        cx.update_window(fixture.window.into(), |_, window, cx| {
+            assert_ne!(panel.read(cx).active_id(), Some(first_id));
+            window.click("close-local-terminal", cx);
+            assert_eq!(panel.read(cx).choices(cx).len(), 1);
+            assert_eq!(
+                panel.read(cx).active_id(),
+                Some(first_id),
+                "close retains original instance"
+            );
+        })
+        .expect("close only selected terminal from dock");
+    }
+    let shutdowns = cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |view, cx| view.shutdown_terminals(cx))
+    });
+    for shutdown in shutdowns {
+        shutdown.await;
+    }
+}
+
+#[cfg(unix)]
+#[gpui_kit::test]
 async fn terminal_tabs_keep_workspace_shortcuts_out_and_f6_restores_composer(
     cx: &mut TestAppContext,
 ) {
