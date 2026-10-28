@@ -82,24 +82,25 @@ fn local_pipe(name: &str) -> bool {
     name.starts_with(r"\\.\pipe\") || (!name.contains('\\') && !name.contains('/'))
 }
 
+/// Resources provided by one directory workspace, retained while another is selected.
+struct WorkspaceTerminal {
+    panel: Entity<Panel>,
+    split: Entity<gds::ui::split::State>,
+    _changes: Subscription,
+}
+
 pub(super) struct Terminals {
-    panels: HashMap<Group, Entity<Panel>>,
-    changes: Vec<Subscription>,
+    workspaces: HashMap<Group, WorkspaceTerminal>,
     pub visible: bool,
-    pub split: Entity<gds::ui::split::State>,
+    unavailable_split: Entity<gds::ui::split::State>,
 }
 
 impl Terminals {
     pub fn new(cx: &mut App) -> Self {
         Self {
-            panels: HashMap::new(),
-            changes: Vec::new(),
+            workspaces: HashMap::new(),
             visible: false,
-            split: cx.new(|cx| {
-                let mut split = gds::ui::split::State::new(None, 160., 140., cx);
-                split.default_bottom(260.);
-                split
-            }),
+            unavailable_split: cx.new(|cx| gds::ui::split::State::new(None, 160., 140., cx)),
         }
     }
 }
@@ -116,7 +117,10 @@ impl Workspace {
     }
 
     pub(super) fn terminal_panel(&self) -> Option<Entity<Panel>> {
-        self.terminals.panels.get(&self.terminal_group()?).cloned()
+        self.terminals
+            .workspaces
+            .get(&self.terminal_group()?)
+            .map(|workspace| workspace.panel.clone())
     }
 
     pub(super) fn sync_terminal_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -126,7 +130,7 @@ impl Workspace {
         let Some(group) = self.terminal_group() else {
             return;
         };
-        if !self.terminals.panels.contains_key(&group) {
+        if !self.terminals.workspaces.contains_key(&group) {
             let preferences = crate::configuration::terminal::current(cx);
             let panel = cx.new(|cx| {
                 let mut panel = Panel::new(cx);
@@ -134,10 +138,20 @@ impl Workspace {
                 panel.set_cwd(Some(group.cwd.clone()), cx);
                 panel
             });
-            self.terminals
-                .changes
-                .push(cx.observe(&panel, |_, _, cx| cx.notify()));
-            self.terminals.panels.insert(group, panel);
+            let changes = cx.observe(&panel, |_, _, cx| cx.notify());
+            let split = cx.new(|cx| {
+                let mut split = gds::ui::split::State::new(None, 160., 140., cx);
+                split.default_bottom(260.);
+                split
+            });
+            self.terminals.workspaces.insert(
+                group,
+                WorkspaceTerminal {
+                    panel,
+                    split,
+                    _changes: changes,
+                },
+            );
         }
         if let Some(panel) = self.terminal_panel()
             && panel.read(cx).needs_initial_reveal()
@@ -194,16 +208,16 @@ impl Workspace {
 
     pub(super) fn terminal_focused(&self, window: &Window, cx: &App) -> bool {
         self.terminals
-            .panels
+            .workspaces
             .values()
-            .any(|panel| panel.read(cx).contains_focus(window, cx))
+            .any(|workspace| workspace.panel.read(cx).contains_focus(window, cx))
     }
 
     pub(crate) fn has_running_terminals(&self, cx: &App) -> bool {
         self.terminals
-            .panels
+            .workspaces
             .values()
-            .any(|panel| panel.read(cx).has_running_sessions(cx))
+            .any(|workspace| workspace.panel.read(cx).has_running_sessions(cx))
     }
 
     pub(crate) fn shutdown_terminals(
@@ -211,16 +225,16 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Vec<gds::terminal::Shutdown> {
         self.terminals
-            .panels
+            .workspaces
             .values()
-            .map(|panel| panel.update(cx, |panel, cx| panel.shutdown(cx)))
+            .map(|workspace| workspace.panel.update(cx, |panel, cx| panel.shutdown(cx)))
             .collect()
     }
 
     pub(super) fn update_terminal_preferences(&mut self, cx: &mut Context<Self>) {
         let preferences = crate::configuration::terminal::current(cx);
-        for panel in self.terminals.panels.values() {
-            panel.update(cx, |panel, cx| {
+        for workspace in self.terminals.workspaces.values() {
+            workspace.panel.update(cx, |panel, cx| {
                 panel.set_preferences(preferences.clone(), cx)
             });
         }
@@ -236,6 +250,41 @@ impl Workspace {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx)))
     }
 
+    /// Only the matching workspace contributes its terminal controls to navigation.
+    pub(super) fn render_workspace_terminals(
+        &self,
+        directory: Option<&Path>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !self.terminals.visible {
+            return None;
+        }
+        let group = Group::new(&self.backend.server, directory)?;
+        if self.terminal_group().as_ref() != Some(&group) {
+            return None;
+        }
+        let panel = self.terminals.workspaces.get(&group)?.panel.clone();
+        let tabs = panel.update(cx, |panel, cx| panel.render_tabs(cx));
+        Some(
+            div()
+                .id("workspace-terminals")
+                .test_support()
+                .flex()
+                .flex_col()
+                .w_full()
+                .min_w_0()
+                .child(
+                    gds::ui::sidebar_section_title(crate::i18n::tr!("local-terminal-title"), cx)
+                        .id("agents-terminal-heading")
+                        .test_support()
+                        .px(px(gds::ui::SIDEBAR_SECTION_PADDING))
+                        .py_1(),
+                )
+                .child(tabs)
+                .into_any_element(),
+        )
+    }
+
     pub(super) fn render_terminal_dock(
         &self,
         content: AnyElement,
@@ -244,48 +293,22 @@ impl Workspace {
         if !self.terminals.visible {
             return content;
         }
-        let sidebar_width = if self.window.sidebar_visible {
-            SIDEBAR_WIDTH
-        } else {
-            gds::ui::COLLAPSED_SIDEBAR_WIDTH
-        };
-        let frame = gds::ui::Frame::new(sidebar_width);
-        let collapsed = !self.window.sidebar_visible;
+        let workspace = self
+            .terminal_group()
+            .and_then(|group| self.terminals.workspaces.get(&group));
+        let split = workspace
+            .map(|workspace| workspace.split.clone())
+            .unwrap_or_else(|| self.terminals.unavailable_split.clone());
         let active_title = self
             .terminal_panel()
             .map(|panel| panel.read(cx).active_title(cx))
             .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into());
-        let heading = div()
-            .id("agents-terminal-heading")
-            .flex()
-            .items_center()
-            .h_full()
-            .min_w_0()
-            .px_2()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .when(collapsed, |heading| {
-                heading
-                    .justify_center()
-                    .child(Icon::new(IconName::Terminal).size(px(crate::ui::ICON)))
-                    .tooltip(|window, cx| {
-                        gds::ui::tooltip::view(crate::i18n::tr!("local-terminal-title"), window, cx)
-                    })
-            })
-            .when(!collapsed, |heading| {
-                heading.child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(crate::i18n::tr!("local-terminal-title")),
-                )
-            });
         let controls = div()
             .flex()
             .items_center()
             .h_full()
             .min_w_0()
-            .px_3()
+            .px(px(gds::ui::TERMINAL_CONTENT_INSET))
             .gap_2()
             .child(
                 div()
@@ -296,43 +319,37 @@ impl Workspace {
                     .child(active_title),
             )
             .child(
-                layout::icon_button("terminal-settings", IconName::Settings)
-                    .tooltip(crate::i18n::tr!("settings-terminal"))
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.open_terminal_settings(window, cx)),
-                    ),
+                layout::icon_button("new-local-terminal", IconName::Plus)
+                    .disabled(workspace.is_none())
+                    .tooltip(crate::i18n::tr!("local-terminal-new"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        if let Some(panel) = this.terminal_panel() {
+                            panel.update(cx, |panel, cx| {
+                                panel.new_terminal(&NewTerminal, window, cx)
+                            });
+                        }
+                    })),
             )
             .child(
                 layout::icon_button("hide-local-terminal", IconName::Terminal)
                     .tooltip(crate::i18n::tr!("local-terminal-toggle"))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))),
             );
-        let header = frame
-            .workspace(heading.into_any_element(), controls.into_any_element(), cx)
-            .flex_none()
-            .h(px(crate::ui::CONTROL));
-        let body = match self.terminal_panel() {
-            Some(panel) => {
-                panel.update(cx, |panel, cx| panel.set_sidebar_width(sidebar_width, cx));
-                panel.into_any_element()
-            }
-            None => frame
-                .workspace(
-                    div().into_any_element(),
-                    div()
-                        .p_3()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(if local_ipc(&self.backend.server.target) {
-                            crate::i18n::tr!("local-terminal-no-cwd")
-                        } else {
-                            crate::i18n::tr!("local-terminal-remote")
-                        })
-                        .into_any_element(),
-                    cx,
-                )
-                .h_full()
-                .into_any_element(),
-        };
+        let header = controls.flex_none().h(px(crate::ui::CONTROL));
+        let body = workspace
+            .map(|workspace| workspace.panel.clone().into_any_element())
+            .unwrap_or_else(|| {
+                div()
+                    .size_full()
+                    .p_3()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if local_ipc(&self.backend.server.target) {
+                        crate::i18n::tr!("local-terminal-no-cwd")
+                    } else {
+                        crate::i18n::tr!("local-terminal-remote")
+                    })
+                    .into_any_element()
+            });
         let dock = div()
             .id("local-terminal-dock")
             .test_support()
@@ -353,12 +370,9 @@ impl Workspace {
                     .overflow_hidden()
                     .child(body),
             );
-        let divider = frame
-            .workspace(div().into_any_element(), div().into_any_element(), cx)
-            .flex_none()
-            .size_full();
+        let divider = div().size_full().bg(gds::theme::content_background(cx));
         gds::ui::split::VerticalSplit::new(
-            self.terminals.split.clone(),
+            split,
             content,
             dock.into_any_element(),
             crate::i18n::tr!("local-terminal-resize"),

@@ -34,7 +34,6 @@ pub(in crate::workspace) struct Panel {
     cwd: Option<PathBuf>,
     preferences: Preferences,
     tabs_focus: FocusHandle,
-    sidebar_width: f32,
     closing: bool,
     retiring: Vec<Shared<Shutdown>>,
     shutdown: Option<Shared<Shutdown>>,
@@ -49,7 +48,6 @@ impl Panel {
             cwd: None,
             preferences: Preferences::default(),
             tabs_focus: cx.focus_handle(),
-            sidebar_width: gds::ui::SIDEBAR_WIDTH,
             closing: false,
             retiring: Vec::new(),
             shutdown: None,
@@ -60,13 +58,6 @@ impl Panel {
         let cwd = cwd.filter(|path| path.is_absolute());
         if self.cwd != cwd {
             self.cwd = cwd;
-            cx.notify();
-        }
-    }
-
-    pub fn set_sidebar_width(&mut self, width: f32, cx: &mut Context<Self>) {
-        if self.sidebar_width != width {
-            self.sidebar_width = width;
             cx.notify();
         }
     }
@@ -181,7 +172,12 @@ impl Panel {
         Box::pin(shutdown)
     }
 
-    fn new_terminal(&mut self, _: &NewTerminal, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn new_terminal(
+        &mut self,
+        _: &NewTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(cwd) = self.cwd.clone() {
             self.open(cwd, window, cx);
         }
@@ -321,23 +317,19 @@ impl Panel {
             }))
             .into_any_element()
     }
-}
 
-impl Render for Panel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let collapsed = self.sidebar_width <= gds::ui::COLLAPSED_SIDEBAR_WIDTH;
-        let tabs = div()
+    /// The workspace sidebar provides management; the dock only renders the PTY.
+    pub fn render_tabs(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let collapsed = false;
+        div()
             .id("agents-terminal-tabs")
             .test_support()
             .key_context(TABS_CONTEXT)
             .track_focus(&self.tabs_focus)
-            .w(px(self.sidebar_width))
-            .h_full()
-            .flex_shrink_0()
+            .w_full()
+            .flex_none()
             .flex()
             .flex_col()
-            .overflow_y_scroll()
-            .p(px(gds::ui::SIDEBAR_PADDING))
             .gap_1()
             .text_color(gds::theme::Colors::current(cx).sidebar_foreground)
             .bg(gds::theme::sidebar_background(cx))
@@ -368,7 +360,13 @@ impl Render for Panel {
                     .on_click(cx.listener(|panel, _, window, cx| {
                         panel.new_terminal(&NewTerminal, window, cx)
                     })),
-            );
+            )
+            .into_any_element()
+    }
+}
+
+impl Render for Panel {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let content = match self.active_terminal() {
             Some(terminal) => terminal.clone().into_any_element(),
             None => div()
@@ -383,25 +381,11 @@ impl Render for Panel {
                 })
                 .into_any_element(),
         };
-        // A live Terminal owns its own content material; only the tab column and
-        // empty state are painted here, never a background behind the PTY grid.
         div()
-            .relative()
             .size_full()
             .min_h_0()
             .min_w_0()
-            .flex()
             .overflow_hidden()
-            .child(tabs)
-            .child(div().flex_1().min_h_0().min_w_0().h_full().child(content))
-            .child(
-                div()
-                    .absolute()
-                    .left(px(self.sidebar_width))
-                    .top_0()
-                    .bottom_0()
-                    .w(px(1.))
-                    .bg(cx.theme().border),
-            )
+            .child(content)
     }
 }
