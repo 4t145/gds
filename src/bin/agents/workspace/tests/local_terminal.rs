@@ -119,7 +119,7 @@ fn terminal_tabs_keep_workspace_shortcuts_out_and_f6_restores_composer(cx: &mut 
 
 #[cfg(unix)]
 #[gpui_kit::test]
-async fn close_confirmation_cancellation_keeps_hidden_starting_terminal(cx: &mut TestAppContext) {
+async fn close_without_confirmation_reaps_hidden_starting_terminal(cx: &mut TestAppContext) {
     // The PTY supervisor is an OS thread, outside the deterministic UI scheduler.
     cx.executor().allow_parking();
     let fixture = fixture(cx);
@@ -134,38 +134,10 @@ async fn close_confirmation_cancellation_keeps_hidden_starting_terminal(cx: &mut
                 panel.update(cx, |panel, cx| panel.open(std::env::temp_dir(), window, cx));
                 view.toggle_terminal(window, cx);
                 assert!(view.has_running_terminals(cx), "starting counts as running");
-                view.close_window(window, cx);
                 panel
             })
         })
         .expect("request close with hidden terminal");
-    cx.run_until_parked();
-    let confirmation = cx.update(|cx| {
-        cx.windows()
-            .into_iter()
-            .find(|window| window.window_id() != fixture.window.window_id())
-            .expect("close confirmation")
-    });
-    cx.update_window(confirmation, |_, window, cx| {
-        window.render_frame(cx);
-        window.click("message-close", cx);
-    })
-    .expect("cancel close");
-    cx.update_window(fixture.window.into(), |_, window, cx| {
-        assert!(panel.read(cx).has_sessions());
-        assert!(!fixture.view.read(cx).terminals.visible);
-        fixture
-            .view
-            .update(cx, |view, cx| view.close_window(window, cx));
-    })
-    .expect("cancel retains workspace");
-    cx.run_until_parked();
-    let confirmation = cx.update(|cx| {
-        cx.windows()
-            .into_iter()
-            .find(|window| window.window_id() != fixture.window.window_id())
-            .expect("second close confirmation")
-    });
     let (closed, finished) = futures::channel::oneshot::channel();
     let mut closed = Some(closed);
     let expected = fixture.window.window_id();
@@ -178,11 +150,18 @@ async fn close_confirmation_cancellation_keeps_hidden_starting_terminal(cx: &mut
             }
         })
     });
-    cx.update_window(confirmation, |_, window, cx| {
-        window.render_frame(cx);
-        window.click("message-confirm", cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture
+            .view
+            .update(cx, |view, cx| view.close_window(window, cx));
+        assert!(
+            cx.windows()
+                .iter()
+                .all(|handle| handle.window_id() == expected),
+            "close must not open a confirmation window"
+        );
     })
-    .expect("confirm close");
+    .expect("request immediate close");
     finished
         .await
         .expect("Host closes only after the real PTY shutdown completes");

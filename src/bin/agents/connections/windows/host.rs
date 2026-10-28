@@ -283,28 +283,6 @@ impl Host {
         if self.closing {
             return;
         }
-        if self.has_running_terminals(cx) {
-            let host = cx.entity().downgrade();
-            let handle = window.window_handle();
-            let result = crate::application::open_confirmation(
-                crate::application::Confirmation {
-                    title: crate::i18n::tr!("local-terminal-close-title").into(),
-                    message: crate::i18n::tr!("local-terminal-close-message").into(),
-                    confirm_label: crate::i18n::tr!("local-terminal-close-confirm").into(),
-                    destructive: true,
-                },
-                move |cx| {
-                    let _ = handle.update(cx, |_, window, cx| {
-                        let _ = host.update(cx, |host, cx| host.finish_close(window, cx));
-                    });
-                },
-                cx,
-            );
-            if let Err(error) = result {
-                tracing::error!(%error, "cannot confirm terminal shutdown; keeping window open");
-            }
-            return;
-        }
         self.finish_close(window, cx);
     }
 

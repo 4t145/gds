@@ -6,7 +6,7 @@ use gpui_kit::{
     App, AppContext, Context, Entity, FocusHandle, IntoElement, Render, SharedString, Subscription,
     TestSupportExt, Window,
     assets::IconName,
-    component::{ActiveTheme, Disableable, Icon, WindowExt},
+    component::{ActiveTheme, Disableable, Icon},
     div,
     prelude::*,
     px,
@@ -35,7 +35,6 @@ pub(in crate::workspace) struct Panel {
     preferences: Preferences,
     tabs_focus: FocusHandle,
     sidebar_width: f32,
-    confirming: Option<u64>,
     closing: bool,
     retiring: Vec<Shared<Shutdown>>,
     shutdown: Option<Shared<Shutdown>>,
@@ -51,7 +50,6 @@ impl Panel {
             preferences: Preferences::default(),
             tabs_focus: cx.focus_handle(),
             sidebar_width: gds::ui::SIDEBAR_WIDTH,
-            confirming: None,
             closing: false,
             retiring: Vec::new(),
             shutdown: None,
@@ -143,7 +141,6 @@ impl Panel {
             return Box::pin(shutdown.clone());
         }
         self.closing = true;
-        self.confirming = None;
         self.active = None;
         let mut pending = std::mem::take(&mut self.retiring);
         for entry in self.entries.drain(..) {
@@ -228,62 +225,14 @@ impl Panel {
                 .get(index.min(self.entries.len().saturating_sub(1)))
                 .map(|entry| entry.id);
         }
-        self.confirming = None;
         self.focus(window, cx);
         cx.notify();
     }
 
     fn request_close(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closing || self.confirming.is_some() {
-            return;
-        }
-        let Some(entry) = self.entries.iter().find(|entry| entry.id == id) else {
-            return;
-        };
-        if !entry.terminal.read(cx).is_running(cx) {
+        if !self.closing {
             self.remove(id, window, cx);
-            return;
         }
-        self.confirming = Some(id);
-        let confirm = cx.entity().downgrade();
-        let cancelled = confirm.clone();
-        window.open_alert_dialog(cx, move |dialog, _, cx| {
-            let confirm = confirm.clone();
-            let cancelled = cancelled.clone();
-            let colors = gds::theme::Colors::current(cx);
-            let mut background = colors.panel;
-            background.a = 1.;
-            dialog
-                .confirm()
-                .bg(background)
-                .text_color(colors.panel_foreground)
-                .title(crate::i18n::tr!("local-terminal-tab-close-title"))
-                .description(crate::i18n::tr!("local-terminal-tab-close-message"))
-                .footer(
-                    gds::ui::DialogActions::new(
-                        crate::i18n::tr!("local-terminal-tab-close"),
-                        IconName::X,
-                        crate::i18n::tr!("action-cancel"),
-                    )
-                    .danger(),
-                )
-                .on_ok(move |_, window, cx| {
-                    if let Err(error) = confirm.update(cx, |panel, cx| panel.remove(id, window, cx))
-                    {
-                        tracing::debug!(%error, "terminal collection closed before confirmation");
-                    }
-                    true
-                })
-                .on_close(move |_, window, cx| {
-                    if let Err(error) = cancelled.update(cx, |panel, cx| {
-                        panel.confirming = None;
-                        panel.focus(window, cx);
-                        cx.notify();
-                    }) {
-                        tracing::debug!(%error, "terminal collection closed with dialog");
-                    }
-                })
-        });
     }
 
     fn title(entry: &Entry, cx: &App) -> SharedString {
