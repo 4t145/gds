@@ -9,7 +9,7 @@ mod view;
 pub use instance::{Shutdown, Status, Terminal};
 pub use preferences::{Preferences, PreferencesEditor};
 
-use gpui_kit::{App, Global, actions};
+use gpui_kit::{App, Global, KeyBinding, NoAction, actions};
 
 pub const INPUT_CONTEXT: &str = "GdsTerminal";
 
@@ -35,12 +35,18 @@ actions!(
 struct Initialized;
 impl Global for Initialized {}
 
-/// Install the process-cleanup fallback. No keyboard shortcuts or UI are registered.
+/// Install cleanup and reserve Tab for PTY input. Hosts choose other shortcuts and UI.
 pub fn init(cx: &mut App) {
     if cx.has_global::<Initialized>() {
         return;
     }
     cx.set_global(Initialized);
+    // Root's accessibility bindings run before key_down. Unbind them only on
+    // the PTY focus path so the terminal encoder receives Tab / Backtab.
+    cx.bind_keys([
+        KeyBinding::new("tab", NoAction, Some(INPUT_CONTEXT)),
+        KeyBinding::new("shift-tab", NoAction, Some(INPUT_CONTEXT)),
+    ]);
     cx.on_app_quit(|_| async { session::shutdown_all().await })
         .detach();
 }
