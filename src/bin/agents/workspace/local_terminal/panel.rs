@@ -246,9 +246,34 @@ impl Panel {
         cx.notify();
     }
 
-    fn request_close(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn request_close(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         if !self.closing {
             self.remove(id, window, cx);
+        }
+    }
+
+    pub fn choices(&self, cx: &App) -> Vec<(u64, SharedString, bool)> {
+        self.entries
+            .iter()
+            .map(|entry| {
+                (
+                    entry.id,
+                    Self::title(entry, cx),
+                    self.active == Some(entry.id),
+                )
+            })
+            .collect()
+    }
+
+    pub fn active_id(&self) -> Option<u64> {
+        self.active
+    }
+
+    pub(super) fn select(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.closing && self.entries.iter().any(|entry| entry.id == id) {
+            self.active = Some(id);
+            self.focus(window, cx);
+            cx.notify();
         }
     }
 

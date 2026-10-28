@@ -14,6 +14,7 @@ local-terminal-close-confirm = Terminate and close
 local-terminal-closing = Waiting for local terminals to stop…
 local-terminal-quit-notice = Quitting also terminates local terminals in every window and workspace.
 local-terminal-new = New terminal
+local-terminal-select = Switch terminal
 local-terminal-empty = No local terminals. Use + to start a shell in this working directory.
 local-terminal-tab-close = Close terminal
 local-terminal-tab-close-title = Terminate this terminal?

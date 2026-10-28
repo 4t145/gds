@@ -14,6 +14,7 @@ local-terminal-close-confirm = 终止并关闭
 local-terminal-closing = 正在等待本地终端退出…
 local-terminal-quit-notice = 退出也会终止所有窗口和工作区中的本地终端。
 local-terminal-new = 新建终端
+local-terminal-select = 切换终端
 local-terminal-empty = 尚无本地终端。点击 + 在此工作目录中启动 Shell。
 local-terminal-tab-close = 关闭终端
 local-terminal-tab-close-title = 终止此终端？
