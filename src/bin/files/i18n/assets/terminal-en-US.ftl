@@ -1,5 +1,5 @@
 files-terminal-new = New terminal
-files-terminal-switch-directory = Switch to current folder
+files-terminal-switch-directory = Switch to current folder (empty shell prompt only)
 files-terminal-switch-failed = Could not switch folders. Use this action at an empty shell prompt.
 files-terminal-end = End session
 files-terminal-end-title = End this terminal session?
