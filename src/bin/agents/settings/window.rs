@@ -172,6 +172,21 @@ pub(crate) fn open_connections(cx: &mut App) -> anyhow::Result<WindowHandle<Root
     Ok(handle)
 }
 
+/// Opens this application's terminal preferences in the existing settings host.
+///
+/// # Errors
+/// Returns an error if the settings window cannot be opened or updated.
+pub(crate) fn open_terminal(cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
+    let handle = open(cx)?;
+    let settings = settings(cx, handle);
+    handle.update(cx, |_, window, cx| {
+        settings.update(cx, |settings, cx| {
+            settings.select_category(super::Category::Terminal, window, cx);
+        })
+    })??;
+    Ok(handle)
+}
+
 /// Opens a local agent's settings and explicitly refreshes its ACP auth methods.
 ///
 /// # Errors
