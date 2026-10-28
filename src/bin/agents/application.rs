@@ -69,22 +69,18 @@ fn on_open_settings(_: &OpenSettings, cx: &mut App) {
 }
 
 fn on_quit(_: &Quit, cx: &mut App) {
-    if let Err(error) = open_quit(cx) {
-        tracing::error!(%error, "cannot open quit confirmation");
-    }
+    request_quit(cx);
 }
 
 #[derive(Clone, Copy)]
 enum InfoWindow {
     About,
-    Quit,
     Confirmation,
 }
 
 #[derive(Default)]
 struct OpenWindows {
     about: Option<WindowHandle<Root>>,
-    quit: Option<WindowHandle<Root>>,
     confirmation: Option<WindowHandle<Root>>,
 }
 impl Global for OpenWindows {}
@@ -171,12 +167,6 @@ impl Render for About {
     }
 }
 
-/// # Errors
-/// Returns a platform error if the quit confirmation window cannot be created.
-pub(crate) fn open_quit(cx: &mut App) -> anyhow::Result<WindowHandle<Root>> {
-    open_host(Host::new(InfoWindow::Quit), cx)
-}
-
 impl InfoWindow {
     fn window_kind(self) -> WindowKind {
         if matches!(self, Self::Confirmation) {
@@ -191,7 +181,6 @@ impl InfoWindow {
             // [!todo] here we have product name `Agents`, witch should be a static value and easy to replace with
             // other name
             Self::About => crate::i18n::tr!("app-about"),
-            Self::Quit => crate::i18n::tr!("app-quit-title"),
             Self::Confirmation => crate::i18n::tr!("app-confirm"),
         }
     }
@@ -199,7 +188,6 @@ impl InfoWindow {
     fn slot(self, windows: &mut OpenWindows) -> &mut Option<WindowHandle<Root>> {
         match self {
             Self::About => &mut windows.about,
-            Self::Quit => &mut windows.quit,
             Self::Confirmation => &mut windows.confirmation,
         }
     }
@@ -308,26 +296,6 @@ impl Host {
 
     fn on_home(_: &ClickEvent, _: &mut Window, cx: &mut App) {
         cx.open_url(HOME_URL);
-    }
-
-    fn on_quit_confirm(_: &ClickEvent, _: &mut Window, cx: &mut App) {
-        if cx.has_global::<QuitPending>() {
-            return;
-        }
-        cx.set_global(QuitPending);
-        settings::window::flush_pending(cx);
-        let pending = crate::connections::shutdown_terminals(cx);
-        if pending.is_empty() {
-            cx.quit();
-            return;
-        }
-        cx.spawn(async move |cx| {
-            for shutdown in pending {
-                shutdown.await;
-            }
-            cx.update(|cx| cx.quit());
-        })
-        .detach();
     }
 
     fn message(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -447,51 +415,20 @@ impl Host {
             ]
         }
     }
-
-    fn quit(&self) -> impl IntoElement {
-        el! {
-            .div {
-                flex;
-                flex_col;
-                gap_6;
-                p_6;
-            } [
-                $(crate::i18n::tr!("app-quit-question")),
-                $(crate::i18n::tr!("app-quit-notice")),
-                $(crate::i18n::tr!("local-terminal-quit-notice")),
-                .div {
-                    flex;
-                    justify_end;
-                    gap_3;
-                } [
-                    ("quit-cancel").crate::ui::action_button {
-                        label: $(crate::i18n::tr!("action-cancel"));
-                        on_click: Self::on_close;
-                    },
-                    ("quit-confirm").crate::ui::action_button {
-                        label: $(crate::i18n::tr!("app-quit"));
-                        on_click: Self::on_quit_confirm;
-                    },
-                ],
-            ]
-        }
-    }
 }
 
 impl Render for Host {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if matches!(self.kind, InfoWindow::About | InfoWindow::Quit) {
+        if matches!(self.kind, InfoWindow::About) {
             self.title = self.kind.title().into();
             window.set_window_title(&self.title);
         }
         let id = match self.kind {
             InfoWindow::About => "about-window",
-            InfoWindow::Quit => "quit-window",
             InfoWindow::Confirmation => "confirmation-window",
         };
         let content = match self.kind {
             InfoWindow::About => self.about(false).into_any_element(),
-            InfoWindow::Quit => self.quit().into_any_element(),
             InfoWindow::Confirmation => self.message(cx).into_any_element(),
         };
         el! {
@@ -513,4 +450,24 @@ impl Render for Host {
             ]
         }
     }
+}
+
+pub(crate) fn request_quit(cx: &mut App) {
+    if cx.has_global::<QuitPending>() {
+        return;
+    }
+    cx.set_global(QuitPending);
+    settings::window::flush_pending(cx);
+    let pending = crate::connections::shutdown_terminals(cx);
+    if pending.is_empty() {
+        cx.quit();
+        return;
+    }
+    cx.spawn(async move |cx| {
+        for shutdown in pending {
+            shutdown.await;
+        }
+        cx.update(|cx| cx.quit());
+    })
+    .detach();
 }

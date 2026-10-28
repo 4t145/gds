@@ -20,7 +20,6 @@ pub(super) const MIN_CONTENT_HEIGHT: f32 = sidebar::MIN_TABS_HEIGHT
     + ui::SIDEBAR_ITEM_HEIGHT * 2.;
 pub(super) const MIN_DOCK_HEIGHT: f32 = 160.;
 pub(super) const DEFAULT_DOCK_HEIGHT: f32 = 280.;
-const CONFIRMATION_WIDTH: f32 = 460.;
 const HEADER_HEIGHT: f32 = 36.;
 
 pub(super) struct Dock {
@@ -343,12 +342,6 @@ impl Browser {
             .collect()
     }
 
-    fn close_has_running_sessions(&self, target: CloseTarget, cx: &App) -> bool {
-        self.closing_panels(target)
-            .iter()
-            .any(|panel| panel.read(cx).has_running_sessions(cx))
-    }
-
     pub(super) fn on_close_window(
         &mut self,
         _: &ClickEvent,
@@ -356,7 +349,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         // Client-side titlebar controls remove windows directly; route them
-        // through the same confirmation and shutdown barrier as WM requests.
+        // through the same shutdown barrier as WM requests.
         self.request_terminal_close(CloseTarget::Window, window, cx);
     }
 
@@ -384,68 +377,10 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.terminal_close_pending.is_some() || window.has_active_dialog(cx) {
+        if self.terminal_close_pending.is_some() {
             return;
         }
-        if !self.close_has_running_sessions(target, cx) {
-            self.finish_terminal_close(target, window, cx);
-            return;
-        }
-        self.terminal_close_pending = Some(target);
-        let owner = cx.entity().downgrade();
-        // Let a triggering popup unmount before the confirmation captures focus.
-        window.on_next_frame(move |window, cx| {
-            let confirm = owner.clone();
-            let cancel = owner.clone();
-            window.open_alert_dialog(cx, move |dialog, _, cx| {
-                let confirm = confirm.clone();
-                let cancel = cancel.clone();
-                let colors = gds::theme::Colors::current(cx);
-                let mut background = colors.panel;
-                background.a = 1.;
-                dialog
-                    .bg(background)
-                    .text_color(colors.panel_foreground)
-                    .confirm()
-                    .width(px(CONFIRMATION_WIDTH))
-                    .title(i18n::text("files-terminal-close-title", cx))
-                    .description(i18n::text(
-                        match target {
-                            CloseTarget::Tab(_) => "files-terminal-close-tab-message",
-                            CloseTarget::Window => "files-terminal-close-window-message",
-                        },
-                        cx,
-                    ))
-                    .footer(
-                        ui::DialogActions::new(
-                            i18n::text("files-terminal-terminate-close", cx),
-                            IconName::X,
-                            i18n::text("operation-cancel", cx),
-                        )
-                        .danger(),
-                    )
-                    .on_ok(move |_, window, cx| {
-                        if let Err(error) = confirm.update(cx, |this, cx| {
-                            if this.terminal_close_pending == Some(target) {
-                                this.finish_terminal_close(target, window, cx);
-                            }
-                        }) {
-                            eprintln!("Files close confirmation owner disappeared: {error}");
-                        }
-                        true
-                    })
-                    .on_close(move |_, _, cx| {
-                        if let Err(error) = cancel.update(cx, |this, _| {
-                            if !this.terminal_closing && this.terminal_close_pending == Some(target)
-                            {
-                                this.terminal_close_pending = None;
-                            }
-                        }) {
-                            eprintln!("Files close dialog owner disappeared: {error}");
-                        }
-                    })
-            });
-        });
+        self.finish_terminal_close(target, window, cx);
     }
 
     fn finish_terminal_close(
@@ -457,8 +392,7 @@ impl Browser {
         if self.terminal_closing {
             return;
         }
-        // Approval is the only path that mutates sessions or tab state. The
-        // shutdown futures include in-flight spawns and worker cleanup, so the
+        // Shutdown futures include in-flight spawns and worker cleanup, so the
         // final window cannot quit before the last PTY has actually stopped.
         self.terminal_closing = true;
         self.terminal_close_pending = Some(target);
