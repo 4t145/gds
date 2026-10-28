@@ -10,7 +10,7 @@ use gds::{
 };
 use gpui_kit::{
     assets::IconName,
-    component::{Icon, WindowExt},
+    component::{Disableable, Selectable, WindowExt, button::ButtonVariants},
     prelude::*,
     *,
 };
@@ -22,8 +22,6 @@ use crate::actions::{
 
 #[cfg(all(test, feature = "gui-tests"))]
 mod tests;
-
-const TAB_HEIGHT: f32 = 34.;
 
 struct Entry {
     id: u64,
@@ -127,6 +125,27 @@ impl Panel {
         self.entries
             .iter()
             .find(|entry| Some(entry.id) == self.active)
+    }
+
+    fn title(entry: &Entry, cx: &App) -> SharedString {
+        let terminal = entry.terminal.read(cx);
+        terminal
+            .title(cx)
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| {
+                terminal
+                    .cwd()
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| terminal.cwd().display().to_string())
+                    .into()
+            })
+    }
+
+    pub fn active_title(&self, cx: &App) -> SharedString {
+        self.selected()
+            .map(|entry| Self::title(entry, cx))
+            .unwrap_or_else(|| i18n::text("settings-terminal", cx))
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
@@ -296,6 +315,8 @@ impl Render for Panel {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .p(px(ui::SIDEBAR_PADDING))
+            .gap_1()
             .bg(gds::theme::sidebar_background(cx))
             .text_color(colors.sidebar_foreground)
             .key_context(TERMINAL_TABS_CONTEXT)
@@ -308,14 +329,7 @@ impl Render for Panel {
         for entry in &self.entries {
             let id = entry.id;
             let terminal = entry.terminal.read(cx);
-            let title = terminal.title(cx).unwrap_or_else(|| {
-                terminal
-                    .cwd()
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| terminal.cwd().display().to_string())
-                    .into()
-            });
+            let title = Self::title(entry, cx);
             let mut args = fluent_bundle::FluentArgs::new();
             args.set("path", terminal.cwd().display().to_string());
             let tooltip: SharedString = format!(
@@ -330,39 +344,35 @@ impl Render for Panel {
                 cx.stop_propagation();
                 panel.request_close(id, window, cx);
             });
-            let close_button = ui::IconButton::new(("files-terminal-close", id))
-                .icon(IconName::X)
-                .label(i18n::text("files-terminal-end", cx))
+            let close_button = ui::button::Button::icon_button(("files-terminal-close", id))
+                .control_icon(IconName::X)
+                .tooltip(i18n::text("files-terminal-end", cx))
+                .when(self.active == Some(id), |button| button.selected(true))
                 .disabled(self.sealed || entry.closing)
                 .on_click(close);
             tabs = tabs.child(
-                div()
-                    .id(("files-terminal-tab", id))
-                    .flex()
-                    .items_center()
-                    .min_w_0()
-                    .h(px(TAB_HEIGHT))
-                    .flex_shrink_0()
-                    .pl_2()
-                    .when(self.active == Some(id), |this| {
-                        this.bg(colors.selection)
-                            .text_color(colors.selection_foreground)
+                ui::NavItem::new(("files-terminal-tab", id), IconName::Terminal, title)
+                    .compact(collapsed)
+                    .selected(self.active == Some(id))
+                    .tooltip_text(tooltip)
+                    .trailing(if collapsed {
+                        Vec::new()
+                    } else {
+                        vec![close_button.into_any_element()]
                     })
-                    .on_click(select)
-                    .tooltip(move |window, cx| ui::tooltip::view(tooltip.clone(), window, cx))
-                    .when(collapsed, |this| {
-                        this.child(Icon::new(IconName::Terminal).size(px(ui::SIDEBAR_ICON_SIZE)))
-                    })
-                    .when(!collapsed, |this| {
-                        this.child(div().flex_1().min_w_0().truncate().text_sm().child(title))
-                    })
-                    .child(close_button),
+                    .on_click(select),
             );
         }
         tabs = tabs.child(
-            ui::IconButton::new("files-terminal-new")
-                .icon(IconName::Plus)
-                .label(i18n::text(
+            ui::button::Button::new("files-terminal-new")
+                .ghost()
+                .h(px(ui::ICON_BUTTON_SIZE))
+                .w_full()
+                .control_icon(IconName::Plus)
+                .when(!collapsed, |button| {
+                    button.label(i18n::text("files-terminal-new", cx))
+                })
+                .tooltip(i18n::text(
                     if self.cwd.is_some() {
                         "files-terminal-new"
                     } else {

@@ -1,6 +1,56 @@
 use super::{NewTerminal, Panel, Preferences};
 use gpui_kit::{AppContext, Entity, TestAppContext, component::Root, px, size};
 
+#[cfg(unix)]
+#[gpui_kit::test]
+async fn shell_title_changes_notify_the_host_caption(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init_default(cx);
+    });
+    let directory = tempfile::tempdir().expect("terminal title directory");
+    let mut panel = None;
+    let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
+        let entity = cx.new(Panel::new);
+        panel = Some(entity.clone());
+        Root::new(entity, window, cx)
+    });
+    let panel = panel.expect("terminal panel");
+    let (title_seen, changed) = futures::channel::oneshot::channel();
+    let mut title_seen = Some(title_seen);
+    let _subscription = cx.update(|cx| {
+        cx.observe(&panel, move |panel, cx| {
+            if panel.read(cx).active_title(cx).as_ref() == "Live shell caption"
+                && let Some(title_seen) = title_seen.take()
+            {
+                title_seen.send(()).expect("caption observer is waiting");
+            }
+        })
+    });
+    window
+        .update(cx, |_, window, cx| {
+            panel.update(cx, |panel, cx| {
+                panel.set_preferences(
+                    Preferences {
+                        shell: Some(which::which("sh").expect("POSIX test shell")),
+                        shell_args: vec![
+                            "-c".into(),
+                            "printf '\\033]0;Live shell caption\\007'; read wait".into(),
+                        ],
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                panel.open(directory.path().to_path_buf(), window, cx);
+            });
+        })
+        .expect("start caption shell");
+    changed.await.expect("OSC title reaches panel observers");
+    let shutdown = cx.update(|cx| panel.update(cx, |panel, cx| panel.shutdown(cx)));
+    shutdown.await;
+}
+
 #[gpui_kit::test]
 async fn agents_selection_and_new_target_do_not_retarget_existing_terminals(
     cx: &mut TestAppContext,
@@ -53,6 +103,7 @@ async fn agents_selection_and_new_target_do_not_retarget_existing_terminals(
                 assert!(panel.contains_focus(window, cx));
                 let first = panel.entries[0].terminal.clone();
                 assert_eq!(first.read(cx).cwd(), first_cwd.as_path());
+                assert_eq!(panel.active_title(cx).as_ref(), "first");
                 panel.set_cwd(Some(second_cwd.clone()), cx);
                 panel.new_terminal(&NewTerminal, window, cx);
                 assert_eq!(panel.entries.len(), 2);
@@ -63,7 +114,9 @@ async fn agents_selection_and_new_target_do_not_retarget_existing_terminals(
                 );
                 let second_id = panel.entries[1].id;
                 assert_eq!(panel.active, Some(second_id));
+                assert_eq!(panel.active_title(cx).as_ref(), "second");
                 panel.cycle(true, window, cx);
+                assert_eq!(panel.active_title(cx).as_ref(), "first");
                 assert_eq!(
                     panel.active_terminal().expect("first selected").entity_id(),
                     first.entity_id()
