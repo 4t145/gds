@@ -113,6 +113,7 @@ pub struct VerticalSplit {
     top: AnyElement,
     bottom: AnyElement,
     label: SharedString,
+    divider_background: Option<AnyElement>,
 }
 
 impl VerticalSplit {
@@ -127,7 +128,15 @@ impl VerticalSplit {
             top,
             bottom,
             label: label.into(),
+            divider_background: None,
         }
+    }
+
+    /// A material surface laid out inside the resize lane. The split retains
+    /// ownership of its hit area, focus, separator and resize interactions.
+    pub fn divider_background(mut self, background: impl IntoElement) -> Self {
+        self.divider_background = Some(background.into_any_element());
+        self
     }
 }
 
@@ -201,10 +210,6 @@ impl RenderOnce for VerticalSplit {
             .cursor(CursorStyle::ResizeUpDown)
             .flex()
             .items_center()
-            .px_2()
-            .bg(if dragging { highlight } else { rgba(0).into() })
-            .hover(|style| style.bg(highlight))
-            .focus(|style| style.bg(highlight))
             .tooltip(move |window, cx| {
                 gpui_kit::component::tooltip::Tooltip::new(self.label.clone()).build(window, cx)
             })
@@ -229,13 +234,27 @@ impl RenderOnce for VerticalSplit {
                     state.commit(cx);
                 });
                 cx.stop_propagation();
-            })
-            .child(
-                div()
-                    .w_full()
-                    .h(px(1.))
-                    .bg(if dragging { highlight } else { line }),
-            );
+            });
+        let divider = if let Some(background) = self.divider_background {
+            divider
+                .border_t_1()
+                .border_color(if dragging { highlight } else { line })
+                .hover(|style| style.border_color(highlight))
+                .focus(|style| style.border_color(highlight))
+                .child(background)
+        } else {
+            divider
+                .px_2()
+                .bg(if dragging { highlight } else { rgba(0).into() })
+                .hover(|style| style.bg(highlight))
+                .focus(|style| style.bg(highlight))
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(1.))
+                        .bg(if dragging { highlight } else { line }),
+                )
+        };
         div()
             .id("vertical-split")
             .relative()

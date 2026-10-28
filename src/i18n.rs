@@ -66,12 +66,18 @@ impl Catalog {
             Language::English => include_str!("i18n/assets/time-en-US.ftl"),
             Language::Chinese => include_str!("i18n/assets/time-zh-CN.ftl"),
         };
+        let terminal = match language {
+            Language::English => include_str!("i18n/assets/terminal-en-US.ftl"),
+            Language::Chinese => include_str!("i18n/assets/terminal-zh-CN.ftl"),
+        };
         let locale: LanguageIdentifier = language
             .locale()
             .parse()
             .expect("bundled locale identifiers are valid BCP 47");
         let mut bundle = FluentBundle::new_concurrent(vec![locale]);
-        let sources = [core, time].into_iter().chain(application.iter().copied());
+        let sources = [core, time, terminal]
+            .into_iter()
+            .chain(application.iter().copied());
         let mut ids = Vec::new();
         for source in sources {
             let resource = FluentResource::try_new(source.to_owned())

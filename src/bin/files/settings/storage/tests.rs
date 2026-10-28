@@ -45,6 +45,16 @@ fn saves_and_reloads_the_complete_preferences_including_cleared_language() {
     preferences.font.family = Some("Noto Sans".to_owned());
     preferences.font.size = 18.0;
     preferences.files.show_hidden = true;
+    preferences.terminal.shell = Some("/usr/bin/fish".into());
+    preferences.terminal.shell_args =
+        vec!["--private".into(), "literal argument with spaces".into()];
+    preferences.terminal.login_shell = true;
+    preferences.terminal.font_family = "Terminal Mono".into();
+    preferences.terminal.font_size = 16.;
+    preferences.terminal.scrollback_lines = 25_000;
+    preferences.terminal.cursor_blink = false;
+    preferences.terminal.alt_sends_escape = false;
+    preferences.files.terminal_content_height = Some(420.);
     preferences.files.sidebar.tabs_height = Some(284.);
     preferences.files.sidebar.volumes_collapsed = true;
     preferences.files.sidebar.show_volumes = true;
@@ -89,6 +99,8 @@ fn omitted_fields_receive_defaults_but_malformed_configuration_is_an_error() {
     assert_eq!(preferences.language, None);
     assert_eq!(preferences.time_format, Format::Relative);
     assert_eq!(preferences.font, Preferences::default().font);
+    assert_eq!(preferences.terminal, gds::terminal::Preferences::default());
+    assert_eq!(preferences.files.terminal_content_height, None);
 
     fs::write(
         &path,
@@ -107,6 +119,34 @@ fn omitted_fields_receive_defaults_but_malformed_configuration_is_an_error() {
     assert_eq!(
         fs::read_to_string(&path).expect("read unchanged file"),
         invalid
+    );
+}
+
+#[test]
+fn partial_terminal_preferences_keep_shared_defaults_and_literal_arguments() {
+    let root = fixture();
+    let path = application_path(&root);
+    fs::create_dir_all(path.parent().expect("preferences parent")).expect("create preferences dir");
+    fs::write(
+        &path,
+        "[terminal]\nlogin_shell = true\nshell_args = ['--flag', 'two words', '$(not executed)']\n",
+    )
+    .expect("write partial terminal preferences");
+    let preferences = load_from(&path).expect("load partial terminal preferences");
+    assert!(preferences.terminal.login_shell);
+    assert_eq!(preferences.terminal.shell, None);
+    assert_eq!(
+        preferences.terminal.font_size,
+        gds::terminal::Preferences::default().font_size
+    );
+    assert_eq!(
+        preferences.terminal.shell_args,
+        ["--flag", "two words", "$(not executed)"]
+    );
+    save_to(&path, &preferences).expect("save terminal configuration");
+    assert_eq!(
+        load_from(&path).expect("reload terminal configuration"),
+        preferences
     );
 }
 

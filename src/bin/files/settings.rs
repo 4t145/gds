@@ -37,6 +37,9 @@ pub struct FilesPreferences {
     /// Visible columns when no folder-specific override applies.
     pub columns: columns::Layout,
     pub sidebar: SidebarPreferences,
+    /// Preferred content height above the terminal dock; shared by this window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_content_height: Option<f32>,
     /// Default browsing root, keyed by the volume's stable identity.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub volume_mount_points: std::collections::BTreeMap<String, std::path::PathBuf>,
@@ -66,6 +69,7 @@ pub struct Preferences {
     #[serde(skip_serializing_if = "typography::Preferences::is_default")]
     pub font: typography::Preferences,
     pub files: FilesPreferences,
+    pub terminal: gds::terminal::Preferences,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -125,6 +129,7 @@ pub struct View {
     content_opacity: NumberControl,
     sidebar_opacity: NumberControl,
     font: Entity<typography::PreferencesEditor>,
+    terminal: Entity<gds::terminal::PreferencesEditor>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -164,7 +169,11 @@ impl View {
         );
         let font =
             cx.new(|cx| typography::PreferencesEditor::new(preferences.font.clone(), window, cx));
+        let terminal = cx.new(|cx| {
+            gds::terminal::PreferencesEditor::new(preferences.terminal.clone(), window, cx)
+        });
         let mut subscriptions = vec![
+            cx.subscribe_in(&terminal, window, Self::on_terminal_edited),
             cx.subscribe_in(&general, window, Self::on_general_edited),
             cx.subscribe_in(&source.state, window, Self::on_source_confirm),
             cx.subscribe_in(&mode.state, window, Self::on_mode_confirm),
@@ -189,6 +198,7 @@ impl View {
             content_opacity,
             sidebar_opacity,
             font,
+            terminal,
             _subscriptions: subscriptions,
         }
     }
@@ -264,6 +274,9 @@ impl View {
         self.font.update(cx, |editor, cx| {
             editor.set_value(self.preferences.font.clone(), window, cx)
         });
+        self.terminal.update(cx, |editor, cx| {
+            editor.set_value(self.preferences.terminal.clone(), window, cx)
+        });
     }
 
     fn change(
@@ -289,6 +302,18 @@ impl View {
     ) {
         self.change(window, cx, |preferences| {
             Field::replace(preferences, event.value.clone())
+        });
+    }
+
+    fn on_terminal_edited(
+        &mut self,
+        _: &Entity<gds::terminal::PreferencesEditor>,
+        event: &gds::ui::settings::form::Changed<gds::terminal::Preferences>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.change(window, cx, |preferences| {
+            Field::replace(&mut preferences.terminal, event.value.clone())
         });
     }
 

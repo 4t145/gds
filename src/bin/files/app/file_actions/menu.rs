@@ -23,6 +23,7 @@ enum MenuAction {
     Trash,
     DeletePermanent,
     Terminal,
+    InternalTerminal,
 }
 
 impl MenuAction {
@@ -39,7 +40,7 @@ impl MenuAction {
             Self::Rename => Some(Command::Rename),
             Self::Trash => Some(Command::Trash),
             Self::DeletePermanent => Some(Command::DeletePermanent),
-            Self::Terminal => None,
+            Self::Terminal | Self::InternalTerminal => None,
         }
     }
 
@@ -54,7 +55,7 @@ impl MenuAction {
             Self::CopyPaths => Some(IconName::ClipboardCopy),
             Self::Rename => Some(IconName::TextCursor),
             Self::Trash | Self::DeletePermanent => Some(IconName::Trash),
-            Self::Terminal => Some(IconName::Terminal),
+            Self::Terminal | Self::InternalTerminal => Some(IconName::Terminal),
         }
     }
 }
@@ -87,6 +88,7 @@ enum DirectoryAction {
     NewFolder,
     Paste,
     Terminal,
+    InternalTerminal,
     Refresh,
 }
 
@@ -95,7 +97,7 @@ impl DirectoryAction {
         match self {
             Self::NewFolder => None,
             Self::Paste => Some(Command::Paste),
-            Self::Terminal => None,
+            Self::Terminal | Self::InternalTerminal => None,
             Self::Refresh => Some(Command::Refresh),
         }
     }
@@ -105,6 +107,7 @@ impl DirectoryAction {
             Self::NewFolder => "new-folder",
             Self::Paste => "paste-files",
             Self::Terminal => "terminal-open-external",
+            Self::InternalTerminal => "files-terminal-open-here",
             Self::Refresh => "refresh",
         }
     }
@@ -113,7 +116,7 @@ impl DirectoryAction {
         match self {
             Self::NewFolder => Some(IconName::FolderPlus),
             Self::Paste => Some(IconName::ClipboardPaste),
-            Self::Terminal => Some(IconName::Terminal),
+            Self::Terminal | Self::InternalTerminal => Some(IconName::Terminal),
             Self::Refresh => Some(IconName::RefreshCw),
         }
     }
@@ -182,6 +185,12 @@ impl Browser {
                 i18n::text("delete-permanently", cx),
             )
             .disabled(self.file_operation_in_progress);
+        let internal_terminal = self.picker.is_none().then(|| {
+            items.item(
+                MenuAction::InternalTerminal,
+                i18n::text("files-terminal-open-here", cx),
+            )
+        });
         let terminal = items.item(
             MenuAction::Terminal,
             i18n::text("terminal-open-external", cx),
@@ -202,6 +211,7 @@ impl Browser {
                 separator;
                 item: trash; item: delete;
                 separator;
+                @if (let Some(item) = internal_terminal) item: item; @end;
                 item: terminal;
             }
         }
@@ -268,9 +278,16 @@ impl Browser {
         let paste = DirectoryAction::Paste
             .item(view.clone(), target.clone(), cx)
             .disabled(self.file_operation_in_progress);
+        let internal_terminal = self
+            .picker
+            .is_none()
+            .then(|| DirectoryAction::InternalTerminal.item(view.clone(), target.clone(), cx));
         let terminal = DirectoryAction::Terminal.item(view.clone(), target.clone(), cx);
         let refresh = DirectoryAction::Refresh.item(view, target, cx);
-        el! { menu { item: new_folder; separator; item: paste; separator; item: terminal; item: refresh; } }
+        el! { menu { item: new_folder; separator; item: paste; separator;
+            @if (let Some(item) = internal_terminal) item: item; @end;
+            item: terminal; item: refresh;
+        } }
     }
 
     fn directory_action(
@@ -295,6 +312,9 @@ impl Browser {
                     DirectoryAction::Paste => this.paste_files(target.path.clone(), window, cx),
                     DirectoryAction::Terminal => {
                         this.open_external_terminal(target.path.clone(), cx)
+                    }
+                    DirectoryAction::InternalTerminal => {
+                        this.open_internal_terminal(target.path.clone(), window, cx)
                     }
                     DirectoryAction::Refresh => this.refresh_current(cx),
                 }
@@ -336,14 +356,15 @@ impl Browser {
                     MenuAction::Rename => this.begin_rename(selection.paths[0].clone(), window, cx),
                     MenuAction::Trash => this.request_trash_selection(window, cx),
                     MenuAction::DeletePermanent => this.request_delete_selection(window, cx),
-                    MenuAction::Terminal => {
-                        let path = &selection.paths[0];
-                        let target = if selection.directories_only {
-                            path.clone()
-                        } else {
-                            path.parent().unwrap_or(path).to_owned()
+                    MenuAction::Terminal | MenuAction::InternalTerminal => {
+                        let Some(target) = selection.terminal_target() else {
+                            return;
                         };
-                        this.open_external_terminal(target, cx);
+                        if matches!(action, MenuAction::InternalTerminal) {
+                            this.open_internal_terminal(target, window, cx);
+                        } else {
+                            this.open_external_terminal(target, cx);
+                        }
                     }
                 }
             });

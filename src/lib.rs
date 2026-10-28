@@ -9,6 +9,7 @@ pub mod design;
 pub mod desktop;
 pub mod i18n;
 pub mod notifications;
+pub mod terminal;
 pub mod theme;
 pub mod time;
 pub mod typography;

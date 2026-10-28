@@ -20,6 +20,7 @@ mod selection;
 mod sidebar;
 mod table;
 mod tabs;
+mod terminal;
 mod transfers;
 mod view;
 
@@ -127,6 +128,8 @@ struct OpenTab {
     /// picker. It is applied together with the name filter so a directory read
     /// never replaces the narrowed list with the unfiltered one.
     picker: Option<picker::Projection>,
+    /// Each directory slot owns its sessions, including fixed Home and volume slots.
+    terminal: Option<terminal::Dock>,
 }
 
 impl OpenTab {
@@ -150,6 +153,7 @@ impl OpenTab {
             pinned,
             device: None,
             picker: None,
+            terminal: None,
         }
     }
 
@@ -309,6 +313,10 @@ pub struct Browser {
     volume_menu_focus: Option<FocusHandle>,
     settings_open: bool,
     terminal_visible: bool,
+    terminal_maximized: bool,
+    terminal_split: Entity<ui::split::State>,
+    terminal_close_pending: Option<terminal::CloseTarget>,
+    terminal_closing: bool,
     path_editing: bool,
     preview_visible: bool,
     file_operation_in_progress: bool,
@@ -394,7 +402,20 @@ impl Browser {
                 cx,
             )
         });
+        let terminal_split = cx.new(|cx| {
+            let mut split = ui::split::State::new(
+                preferences.files.terminal_content_height,
+                terminal::MIN_CONTENT_HEIGHT,
+                terminal::MIN_DOCK_HEIGHT,
+                cx,
+            );
+            split.default_bottom(terminal::DEFAULT_DOCK_HEIGHT);
+            split
+        });
+        Self::install_terminal_close_handler(window, cx);
         let subscriptions = vec![
+            cx.observe(&terminal_split, |_, _, cx| cx.notify()),
+            cx.subscribe(&terminal_split, Self::on_terminal_split),
             cx.subscribe_in(&path_input, window, Self::on_path_input),
             cx.subscribe_in(&filter_input, window, Self::on_filter_input),
             cx.subscribe_in(&settings_view, window, Self::on_settings_event),
@@ -467,6 +488,10 @@ impl Browser {
             volume_menu_focus: None,
             settings_open: false,
             terminal_visible: false,
+            terminal_maximized: false,
+            terminal_split,
+            terminal_close_pending: None,
+            terminal_closing: false,
             path_editing: false,
             preview_visible: false,
             file_operation_in_progress: false,
@@ -1027,6 +1052,13 @@ impl Browser {
     }
 
     fn close_tab(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.tabs.iter().any(|tab| tab.id == id) {
+            return;
+        }
+        self.request_terminal_close(terminal::CloseTarget::Tab(id), window, cx);
+    }
+
+    fn close_tab_approved(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(index) = self.tabs.iter().position(|tab| tab.id == id) else {
             return;
         };
@@ -1233,6 +1265,7 @@ impl Browser {
         }
         let hidden_changed = preferences.files.show_hidden != self.preferences.files.show_hidden;
         self.preferences = preferences.clone();
+        self.apply_terminal_preferences(cx);
         if appearance_changed {
             self.theme_reload.update(cx, |reload, cx| {
                 reload.set_appearance(preferences.appearance.clone(), window, cx);
@@ -1335,6 +1368,21 @@ impl Browser {
     }
 
     fn dispatch(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        // Window toggles and notification access may cross the PTY focus
+        // boundary; file actions and cancellation must stay in their workspace.
+        if self.terminal_focused(window, cx)
+            && !matches!(
+                command,
+                Command::Settings
+                    | Command::Terminal
+                    | Command::FocusNotifications
+                    | Command::CloseNotification
+                    | Command::CloseAllNotifications
+            )
+        {
+            cx.propagate();
+            return;
+        }
         // A dialog owns focus; its own Enter/Esc handling and buttons remain
         // active, but workspace shortcuts must not run behind it.
         if self.rename.read(cx).is_open() || window.has_active_dialog(cx) {
@@ -1442,10 +1490,7 @@ impl Browser {
                 self.settings_view
                     .update(cx, |view, cx| view.set_sidebar_width(width, cx));
             }
-            Command::Terminal => {
-                self.settings_open = false;
-                self.terminal_visible = !self.terminal_visible;
-            }
+            Command::Terminal => self.toggle_terminal(window, cx),
             Command::EditLocation => {
                 // The collection pages are virtual locations; there is no
                 // editable path behind them.

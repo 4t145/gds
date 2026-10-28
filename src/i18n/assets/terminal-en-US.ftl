@@ -1,0 +1,16 @@
+gds-terminal-starting = Starting shell…
+gds-terminal-start-failed = Could not start terminal
+gds-terminal-exited = Session ended
+gds-terminal-stopping = Stopping session…
+gds-terminal-io-failed = Terminal I/O failed
+gds-terminal-exit-status = Session ended · exit code { $code } · signal { $signal }
+gds-terminal-copy = Copy selection
+gds-terminal-paste = Paste
+gds-terminal-settings-shell = Shell executable
+gds-terminal-settings-shell-hint = Empty uses your account shell. Use an absolute executable path.
+gds-terminal-settings-login = Login shell (new sessions)
+gds-terminal-settings-font = Terminal font
+gds-terminal-settings-font-size = Font size
+gds-terminal-settings-scrollback = Scrollback lines (new sessions)
+gds-terminal-settings-cursor-blink = Blink cursor
+gds-terminal-settings-alt-escape = Alt sends Escape

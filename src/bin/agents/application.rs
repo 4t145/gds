@@ -26,6 +26,8 @@ actions!(application, [OpenSettings, Quit]);
 
 struct ActionsRegistered;
 impl Global for ActionsRegistered {}
+struct QuitPending;
+impl Global for QuitPending {}
 
 pub(crate) fn init(cx: &mut App) {
     if cx.has_global::<ActionsRegistered>() {
@@ -33,6 +35,8 @@ pub(crate) fn init(cx: &mut App) {
     }
     cx.set_global(ActionsRegistered);
     gds::actions::register(cx);
+    gds::terminal::init(cx);
+    crate::configuration::terminal::init(cx);
     crate::connections::bind_page_keys(cx);
     gds::time::apply(gds::time::Format::Relative, cx);
     gds::ui::keytips::install(cx);
@@ -45,6 +49,12 @@ pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new(settings, OpenSettings, None),
         KeyBinding::new(quit, Quit, None),
+        KeyBinding::new(quit, gpui_kit::NoAction, Some(gds::terminal::INPUT_CONTEXT)),
+        KeyBinding::new(
+            quit,
+            gpui_kit::NoAction,
+            Some(crate::workspace::TERMINAL_TABS_CONTEXT),
+        ),
     ]);
     cx.on_action(on_open_settings);
     cx.on_action(on_quit);
@@ -301,8 +311,23 @@ impl Host {
     }
 
     fn on_quit_confirm(_: &ClickEvent, _: &mut Window, cx: &mut App) {
+        if cx.has_global::<QuitPending>() {
+            return;
+        }
+        cx.set_global(QuitPending);
         settings::window::flush_pending(cx);
-        cx.quit();
+        let pending = crate::connections::shutdown_terminals(cx);
+        if pending.is_empty() {
+            cx.quit();
+            return;
+        }
+        cx.spawn(async move |cx| {
+            for shutdown in pending {
+                shutdown.await;
+            }
+            cx.update(|cx| cx.quit());
+        })
+        .detach();
     }
 
     fn message(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -433,6 +458,7 @@ impl Host {
             } [
                 $(crate::i18n::tr!("app-quit-question")),
                 $(crate::i18n::tr!("app-quit-notice")),
+                $(crate::i18n::tr!("local-terminal-quit-notice")),
                 .div {
                     flex;
                     justify_end;

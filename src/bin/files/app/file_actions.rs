@@ -1,4 +1,6 @@
 mod menu;
+#[cfg(test)]
+mod tests;
 
 use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc, sync::Arc};
 
@@ -25,6 +27,26 @@ struct Selection {
 }
 
 impl Selection {
+    fn directory_entry(entry: &crate::directory::Entry) -> bool {
+        entry.kind == EntryKind::Directory
+            || entry.kind == EntryKind::SymbolicLink
+                && entry.details.target.as_ref().is_some_and(|target| {
+                    target.status == crate::directory::LinkStatus::Resolved
+                        && target.kind == EntryKind::Directory
+                })
+    }
+
+    fn terminal_target(&self) -> Option<PathBuf> {
+        let [path] = self.paths.as_slice() else {
+            return None;
+        };
+        if self.directories_only {
+            Some(path.clone())
+        } else {
+            path.parent().map(std::path::Path::to_path_buf)
+        }
+    }
+
     fn capture(browser: &Browser) -> Option<Self> {
         let paths = browser.selected_visible_paths();
         if paths.is_empty() {
@@ -37,7 +59,7 @@ impl Selection {
             .table_rows
             .iter()
             .filter(|entry| selected.contains(&entry.path))
-            .all(|entry| entry.kind == EntryKind::Directory);
+            .all(Self::directory_entry);
         Some(Self {
             tab_id: slot.id,
             directory: tab.navigation.path().to_owned(),

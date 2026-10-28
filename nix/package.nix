@@ -23,6 +23,7 @@ rustPlatform.buildRustPackage {
       ../Cargo.toml
       ../Cargo.lock
       ../LICENSE
+      ../crates
       ../src
     ];
   };
@@ -52,6 +53,7 @@ rustPlatform.buildRustPackage {
   postFixup = ''
     wrapProgram "$out/bin/${binary}" \
       --prefix PATH : ${lib.makeBinPath [ pkgs.xdg-utils pkgs.xdg-terminal-exec ]} \
+      --suffix TERMINFO_DIRS : ${pkgs.ncurses}/share/terminfo \
       --prefix LD_LIBRARY_PATH : "/run/opengl-driver/lib:${lib.makeLibraryPath libraries}"
   '';
 

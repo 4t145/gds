@@ -1,4 +1,4 @@
-use gpui_kit::ClickEvent;
+use gpui_kit::{ClickEvent, Focusable};
 
 use super::*;
 
@@ -410,6 +410,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.toggle_composer_expansion(window, cx);
         cx.stop_propagation();
     }
@@ -420,11 +424,31 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.submit_composer(window, cx);
         cx.stop_propagation();
     }
 
     fn on_composer_paste_action(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.paste_attachment(window, cx);
     }
 
@@ -434,6 +458,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.delete_mention(true, window, cx);
     }
 
@@ -443,6 +477,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.delete_mention(false, window, cx);
     }
 
@@ -452,6 +496,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.delete_word_preserving_mentions(true, window, cx);
     }
 
@@ -461,18 +515,68 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.delete_word_preserving_mentions(false, window, cx);
     }
 
-    fn on_composer_left_action(&mut self, _: &MoveLeft, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_composer_left_action(
+        &mut self,
+        _: &MoveLeft,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.cross_mention(true, cx);
     }
 
-    fn on_composer_right_action(&mut self, _: &MoveRight, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_composer_right_action(
+        &mut self,
+        _: &MoveRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.cross_mention(false, cx);
     }
 
     fn on_composer_up_action(&mut self, _: &MoveUp, window: &mut Window, cx: &mut Context<Self>) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.command_action("up", window, cx);
     }
 
@@ -482,6 +586,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.command_action("down", window, cx);
     }
 
@@ -491,6 +605,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.command_action("tab", window, cx);
     }
 
@@ -500,6 +624,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         self.command_action("escape", window, cx);
     }
 }

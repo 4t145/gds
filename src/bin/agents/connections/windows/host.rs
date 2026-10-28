@@ -1,3 +1,4 @@
+use futures::FutureExt as _;
 use std::collections::HashMap;
 
 use bas::service::tls::ConnectionOptions;
@@ -15,6 +16,11 @@ gpui_kit::actions!(workspace_pages, [Back]);
 
 pub(crate) fn bind_page_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new(
+            "ctrl-`",
+            crate::workspace::ToggleTerminal,
+            Some("AgentsHost"),
+        ),
         KeyBinding::new("escape", Back, Some("BasWorkspacePage")),
         KeyBinding::new("alt-left", Back, Some("BasWorkspacePage")),
         KeyBinding::new(
@@ -37,6 +43,9 @@ pub(crate) struct Host {
     pages: Vec<Page>,
     focus: FocusHandle,
     compact_bounds: Option<Size<Pixels>>,
+    workspace_events: Vec<Subscription>,
+    closing: bool,
+    shutdown: Option<futures::future::Shared<gds::terminal::Shutdown>>,
 }
 
 pub(crate) fn workspace_view(
@@ -47,12 +56,18 @@ pub(crate) fn workspace_view(
     cx.new(|cx| {
         Host::install_close_handler(window, cx);
         let active = view.read(cx).connection_options().clone();
+        let events = cx.subscribe_in(&view, window, |host, _, event, window, cx| match event {
+            crate::workspace::Event::CloseWindow => host.close_window(window, cx),
+        });
         Host {
             active: active.clone(),
             workspaces: HashMap::from([(active, view)]),
             pages: Vec::new(),
             focus: cx.focus_handle(),
             compact_bounds: None,
+            workspace_events: vec![events],
+            closing: false,
+            shutdown: None,
         }
     })
 }
@@ -265,8 +280,102 @@ impl Host {
     }
 
     fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closing {
+            return;
+        }
+        if self.has_running_terminals(cx) {
+            let host = cx.entity().downgrade();
+            let handle = window.window_handle();
+            let result = crate::application::open_confirmation(
+                crate::application::Confirmation {
+                    title: crate::i18n::tr!("local-terminal-close-title").into(),
+                    message: crate::i18n::tr!("local-terminal-close-message").into(),
+                    confirm_label: crate::i18n::tr!("local-terminal-close-confirm").into(),
+                    destructive: true,
+                },
+                move |cx| {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        let _ = host.update(cx, |host, cx| host.finish_close(window, cx));
+                    });
+                },
+                cx,
+            );
+            if let Err(error) = result {
+                tracing::error!(%error, "cannot confirm terminal shutdown; keeping window open");
+            }
+            return;
+        }
+        self.finish_close(window, cx);
+    }
+
+    pub(crate) fn has_running_terminals(&self, cx: &App) -> bool {
+        self.workspaces
+            .values()
+            .any(|view| view.read(cx).has_running_terminals(cx))
+    }
+
+    pub(crate) fn shutdown_terminals(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Vec<gds::terminal::Shutdown> {
+        if let Some(shutdown) = &self.shutdown {
+            return vec![Box::pin(shutdown.clone())];
+        }
+        self.closing = true;
+        cx.notify();
+        let pending: Vec<_> = self
+            .workspaces
+            .values()
+            .flat_map(|view| view.update(cx, |view, cx| view.shutdown_terminals(cx)))
+            .collect();
+        if pending.is_empty() {
+            return Vec::new();
+        }
+        let shutdown: gds::terminal::Shutdown = Box::pin(async move {
+            for pending in pending {
+                pending.await;
+            }
+        });
+        let shutdown = shutdown.shared();
+        self.shutdown = Some(shutdown.clone());
+        vec![Box::pin(shutdown)]
+    }
+
+    fn finish_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closing {
+            return;
+        }
+        let pending = self.shutdown_terminals(cx);
         self.prepare_to_close(window, cx);
-        window.remove_window();
+        if pending.is_empty() {
+            window.remove_window();
+            return;
+        }
+        // Await only this window's PTYs, including starts and retiring closed tabs.
+        cx.spawn_in(window, async move |host, cx| {
+            for shutdown in pending {
+                shutdown.await;
+            }
+            if let Err(error) = host.update_in(cx, |_, window, _| window.remove_window()) {
+                tracing::debug!(%error, "terminal shutdown finished after window removal");
+            }
+        })
+        .detach();
+    }
+
+    fn on_toggle_terminal(
+        &mut self,
+        _: &crate::workspace::ToggleTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.closing {
+            return;
+        }
+        self.return_to_workspace(window, cx);
+        self.active()
+            .update(cx, |workspace, cx| workspace.toggle_terminal(window, cx));
+        cx.stop_propagation();
     }
 
     fn on_close_click(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -279,6 +388,9 @@ impl Host {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> anyhow::Result<()> {
+        if self.closing {
+            anyhow::bail!("The workspace window is closing");
+        }
         if self.active == target {
             return Ok(());
         }
@@ -291,7 +403,7 @@ impl Host {
                     .try_global::<super::Launch>()
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("The workspace runtime is unavailable"))?;
-                cx.new(|cx| {
+                let view = cx.new(|cx| {
                     Workspace::new(
                         target.clone(),
                         launch.cwd,
@@ -300,7 +412,15 @@ impl Host {
                         window,
                         cx,
                     )
-                })
+                });
+                self.workspace_events.push(cx.subscribe_in(
+                    &view,
+                    window,
+                    |host, _, event, window, cx| match event {
+                        crate::workspace::Event::CloseWindow => host.close_window(window, cx),
+                    },
+                ));
+                view
             }
         };
         previous.update(cx, |view, cx| view.set_presented(false, window, cx));
@@ -320,9 +440,9 @@ impl Host {
         let owner = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
             let _ = owner.update(cx, |host, cx| {
-                host.prepare_to_close(window, cx);
+                host.close_window(window, cx);
             });
-            true
+            false
         });
     }
 
@@ -337,8 +457,12 @@ impl Host {
     }
 }
 
-impl Render for Host {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Host {
+    fn render_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
         let Some(page) = self.pages.last() else {
             return self.active().into_any_element();
         };
@@ -390,5 +514,24 @@ impl Render for Host {
             .child(toolbar)
             .child(div().flex_1().min_h_0().child(content))
             .into_any_element()
+    }
+}
+
+impl Render for Host {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = if self.closing {
+            div()
+                .size_full()
+                .p_4()
+                .child(crate::i18n::tr!("local-terminal-closing"))
+                .into_any_element()
+        } else {
+            self.render_content(window, cx)
+        };
+        div()
+            .size_full()
+            .key_context("AgentsHost")
+            .on_action(cx.listener(Self::on_toggle_terminal))
+            .child(content)
     }
 }

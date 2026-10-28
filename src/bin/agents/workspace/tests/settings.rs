@@ -171,6 +171,9 @@ fn settings_cycle_pages_without_dispatching_workspace_shortcuts(cx: &mut TestApp
         assert!(window.find("settings-keybindings-page").visible());
         window.press("ctrl-tab", cx);
         window.render_frame(cx);
+        assert!(window.find("local-terminal-settings").visible());
+        window.press("ctrl-tab", cx);
+        window.render_frame(cx);
         assert!(window.find("acp-policy-page").visible());
         window.press("escape", cx);
     })

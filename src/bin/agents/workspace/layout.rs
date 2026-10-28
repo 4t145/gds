@@ -33,10 +33,9 @@ impl Workspace {
         self.close_menu(window, cx);
     }
 
-    pub(super) fn close_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Programmatic removal does not invoke the native should-close callback.
-        self.prepare_to_close(window, cx);
-        window.remove_window();
+    pub(super) fn close_window(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        // The Host owns all backend workspaces and the single close/confirm boundary.
+        cx.emit(Event::CloseWindow);
     }
 
     pub(super) fn resize_window(&mut self, window: &mut Window, cx: &App) {
@@ -224,11 +223,14 @@ impl Workspace {
                 flex;
                 text_color: $(cx.theme().foreground);
                 capture_any_mouse_down: $(cx.listener(Self::on_layout_mouse_down));
-                on_action: $(|_: &gpui_kit::component::input::Enter, _, _| {});
+                on_action: $(cx.listener(|this, _: &gpui_kit::component::input::Enter, window, cx| {
+                    if this.terminal_focused(window, cx) { cx.propagate(); }
+                }));
                 on_action: $(cx.listener(Self::on_layout_new_session_action));
                 on_action: $(cx.listener(Self::on_layout_next_thread));
                 on_action: $(cx.listener(Self::on_layout_previous_thread));
                 on_action: $(cx.listener(Self::on_layout_focus_composer));
+                on_action: $(cx.listener(Self::on_terminal_focus_composer));
                 on_action: $(cx.listener(Self::on_composer_expand_action));
                 on_action: $(cx.listener(Self::on_layout_focus_search));
                 on_action: $(cx.listener(Self::on_layout_toggle_sidebar_action));
@@ -443,6 +445,7 @@ impl Workspace {
                 ..authentication,
                 $(self.application_button(cx)),
                 $(self.workspace_button(cx)),
+                $(self.terminal_toggle_button(cx)),
                 ("new-session", IconName::Plus).icon_button {
                     tooltip_with_shortcut: $(crate::i18n::tr!("session-new")), $(shortcuts::shortcut(NewSession));
                     on_click: $(cx.listener(Self::on_layout_new_session));
@@ -476,11 +479,17 @@ impl Workspace {
             .child(self.render_chat(cx))
             .into_any_element();
         let workspace = frame.workspace(sidebar, content, cx);
+        let workspace = self.render_terminal_dock(workspace.into_any_element(), cx);
         let server = self.server_status_footer(cx);
         let status = div()
             .children(self.activity_label().map(|label| caption(label, cx)))
             .into_any_element();
-        let footer = frame.footer(server, status, div().into_any_element(), cx);
+        let footer = frame.footer(
+            server,
+            status,
+            self.terminal_toggle_button(cx).into_any_element(),
+            cx,
+        );
         div()
             .id("window-mode")
             .size_full()
@@ -538,6 +547,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.new_session(window, cx);
     }
 
@@ -547,6 +560,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.cycle_thread(false, window, cx);
     }
 
@@ -556,6 +573,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.cycle_thread(true, window, cx);
     }
 
@@ -565,6 +586,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.focus_input(window, cx);
     }
 
@@ -574,6 +599,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.open_sidebar_search(window, cx);
     }
 
@@ -583,6 +612,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.toggle_sidebar(window, cx);
     }
 
@@ -592,6 +625,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.toggle_mode(window, cx);
     }
 
@@ -601,23 +638,39 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.toggle_output(window, cx);
     }
 
     fn on_layout_dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.dismiss(window, cx);
     }
 
-    fn on_layout_refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_layout_refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.refresh(cx);
     }
 
     fn on_layout_scroll_end(
         &mut self,
         _: &ScrollConversationToEnd,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.scroll_conversation_to_end(cx);
     }
 

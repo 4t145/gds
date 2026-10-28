@@ -14,6 +14,12 @@ gpui_kit::actions!(
         PreviousTab,
         ToggleSidebar,
         ToggleTerminal,
+        NewTerminal,
+        CloseTerminal,
+        NextTerminal,
+        PreviousTerminal,
+        FocusTerminal,
+        ReturnFromTerminal,
         EditLocation,
         NavigateBack,
         NavigateForward,
@@ -65,6 +71,8 @@ gpui_kit::actions!(
 );
 
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
+/// Files owns multi-terminal navigation; it is distinct from PTY input.
+pub const TERMINAL_TABS_CONTEXT: &str = "FilesTerminalTabs";
 /// Key context of an armed `Ctrl+Tab` prefix.
 ///
 /// The prefix target keys are bound only here, so they take precedence over the
@@ -406,6 +414,7 @@ fn bindings() -> Vec<KeyBinding> {
         .chain(primary)
         .chain(settings)
         .chain(tab_prefix_bindings())
+        .chain(terminal_bindings())
         // Popup cancellation must win over the workspace's global Escape.
         // Otherwise it moves focus behind a menu while leaving that menu open.
         .chain([
@@ -466,6 +475,28 @@ fn tab_prefix_bindings() -> Vec<KeyBinding> {
     ]
 }
 
+/// Terminal capabilities are shared, but their key choices belong to Files.
+fn terminal_bindings() -> Vec<KeyBinding> {
+    use gds::terminal::{
+        Copy, INPUT_CONTEXT, Paste, ScrollBottom, ScrollPageDown, ScrollPageUp, ScrollTop,
+    };
+    vec![
+        KeyBinding::new("ctrl-shift-c", Copy, Some(INPUT_CONTEXT)),
+        KeyBinding::new("ctrl-shift-v", Paste, Some(INPUT_CONTEXT)),
+        KeyBinding::new("shift-pageup", ScrollPageUp, Some(INPUT_CONTEXT)),
+        KeyBinding::new("shift-pagedown", ScrollPageDown, Some(INPUT_CONTEXT)),
+        KeyBinding::new("shift-home", ScrollTop, Some(INPUT_CONTEXT)),
+        KeyBinding::new("shift-end", ScrollBottom, Some(INPUT_CONTEXT)),
+        KeyBinding::new("f6", ReturnFromTerminal, Some(INPUT_CONTEXT)),
+        KeyBinding::new("f6", ReturnFromTerminal, Some(TERMINAL_TABS_CONTEXT)),
+        KeyBinding::new("ctrl-n", NewTerminal, Some(TERMINAL_TABS_CONTEXT)),
+        KeyBinding::new("ctrl-w", CloseTerminal, Some(TERMINAL_TABS_CONTEXT)),
+        KeyBinding::new("down", NextTerminal, Some(TERMINAL_TABS_CONTEXT)),
+        KeyBinding::new("up", PreviousTerminal, Some(TERMINAL_TABS_CONTEXT)),
+        KeyBinding::new("enter", FocusTerminal, Some(TERMINAL_TABS_CONTEXT)),
+    ]
+}
+
 fn binding(stroke: &'static str, command: Command, context: Option<&'static str>) -> KeyBinding {
     action_binding(stroke, command.action(), context)
 }
@@ -475,7 +506,24 @@ fn action_binding(
     action: Box<dyn Action>,
     context: Option<&'static str>,
 ) -> KeyBinding {
-    let predicate = context.map(|value| {
+    // Context predicates see the whole focus ancestry. Both terminal regions
+    // exclude Files bindings; the panel's own tab-bar keys must not become
+    // file-tab operations, and PTY input must keep its control characters.
+    let scoped = if action.partial_eq(&OpenSettings)
+        || action.partial_eq(&ToggleTerminal)
+        || action.partial_eq(&FocusNotifications)
+        || action.partial_eq(&CloseNotification)
+        || action.partial_eq(&CloseAllNotifications)
+        || context == Some("PopupMenu")
+    {
+        context.map(str::to_owned)
+    } else {
+        Some(match context {
+            Some(context) => format!("({context}) && !GdsTerminal && !FilesTerminalTabs"),
+            None => "!GdsTerminal && !FilesTerminalTabs".to_owned(),
+        })
+    };
+    let predicate = scoped.as_deref().map(|value| {
         KeyBindingContextPredicate::parse(value)
             .expect("bundled action contexts are valid")
             .into()

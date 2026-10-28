@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::Focusable;
 
 mod view;
 
@@ -39,19 +40,19 @@ pub(super) fn bind_keys(cx: &mut App) {
         KeyBinding::new(
             "ctrl-enter",
             SendComposer,
-            Some("BasWorkspace > BasComposer > Input"),
+            Some("BasWorkspace > BasComposer > Input && !GdsTerminal && !AgentsTerminalTabs"),
         ),
         KeyBinding::new(
             "alt-shift-escape",
             ExpandMessageEditor,
-            Some("BasWorkspace"),
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
         ),
     ]);
     if cfg!(target_os = "macos") {
         cx.bind_keys([KeyBinding::new(
             "cmd-enter",
             SendComposer,
-            Some("BasWorkspace > BasComposer > Input"),
+            Some("BasWorkspace > BasComposer > Input && !GdsTerminal && !AgentsTerminalTabs"),
         )]);
     }
 }
@@ -63,6 +64,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self
+            .composer
+            .input
+            .read(cx)
+            .focus_handle(cx)
+            .is_focused(window)
+        {
+            cx.propagate();
+            return;
+        }
         if self
             .selected
             .id

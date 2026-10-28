@@ -24,9 +24,9 @@ actions!(
 
 pub(super) fn bind_keys(cx: &mut App) {
     for context in [
-        "BasWorkspace",
-        "BasWorkspace > Input",
-        "BasWorkspace > BasComposer > Input",
+        "BasWorkspace && !GdsTerminal && !AgentsTerminalTabs",
+        "BasWorkspace > Input && !GdsTerminal && !AgentsTerminalTabs",
+        "BasWorkspace > BasComposer > Input && !GdsTerminal && !AgentsTerminalTabs",
     ] {
         cx.bind_keys([
             KeyBinding::new("f2", RenameThread, Some(context)),
@@ -121,6 +121,10 @@ pub(crate) fn settings_entries() -> Vec<(&'static str, gds::ui::Shortcut)> {
     actions
         .into_iter()
         .map(|(label, action)| (label, gds::ui::Shortcut::new(action, Some("BasWorkspace"))))
+        .chain(std::iter::once((
+            crate::i18n::tr!("local-terminal-toggle"),
+            gds::ui::Shortcut::new(Box::new(ToggleTerminal), Some("AgentsHost")),
+        )))
         .collect()
 }
 
@@ -143,9 +147,13 @@ impl Workspace {
     pub(super) fn on_toggle_session(
         &mut self,
         _: &ToggleSession,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         let Some(meta) = self.current().filter(|meta| !meta.archived) else {
             return;
         };
@@ -163,6 +171,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         let agent = self
             .current()
             .map(|meta| meta.agent.to_string())
@@ -173,45 +185,65 @@ impl Workspace {
     pub(super) fn on_conversation_top(
         &mut self,
         _: &ScrollConversationToTop,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.scroll_conversation_to_top(cx);
     }
 
     pub(super) fn on_conversation_page_up(
         &mut self,
         _: &PageConversationUp,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.page_conversation(true, cx);
     }
 
     pub(super) fn on_conversation_page_down(
         &mut self,
         _: &PageConversationDown,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.page_conversation(false, cx);
     }
 
     pub(super) fn on_conversation_previous_turn(
         &mut self,
         _: &PreviousConversationTurn,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.jump_conversation_turn(true, cx);
     }
 
     pub(super) fn on_conversation_next_turn(
         &mut self,
         _: &NextConversationTurn,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.jump_conversation_turn(false, cx);
     }
 
@@ -221,6 +253,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.close_menu(window, cx);
         if self.window.compact {
             self.toggle_mode(window, cx);
@@ -231,9 +267,13 @@ impl Workspace {
     pub(super) fn on_archive_thread(
         &mut self,
         _: &ArchiveThread,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         if let Some(meta) = self.current() {
             self.set_archived(meta.id, !meta.archived, cx);
         }
@@ -242,9 +282,13 @@ impl Workspace {
     pub(super) fn on_toggle_thread_pin(
         &mut self,
         _: &ToggleThreadPin,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         if let Some(id) = self.selected.id
             && !self.sessions.pending.deleting.contains(&id)
             && self.sessions.entries.iter().any(|session| session.id == id)
@@ -256,9 +300,13 @@ impl Workspace {
     pub(super) fn on_toggle_thread_bookmark(
         &mut self,
         _: &ToggleThreadBookmark,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         if let Some(id) = self.selected.id {
             self.toggle_bookmark(id, cx);
         }
@@ -270,6 +318,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         if let Some(id) = self.selected.id {
             self.request_delete(id, window, cx);
         }
@@ -281,6 +333,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.terminal_focused(window, cx) {
+            cx.propagate();
+            return;
+        }
         self.choose_local_workspace(window, cx);
     }
 }

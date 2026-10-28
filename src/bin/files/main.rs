@@ -172,6 +172,7 @@ fn launch(arguments: picker::Arguments) -> anyhow::Result<()> {
                 }
             }
             actions::register(cx);
+            gds::terminal::init(cx);
             if let Some(error) = migration_error {
                 let mut arguments = FluentArgs::new();
                 arguments.set("error", error.to_string());

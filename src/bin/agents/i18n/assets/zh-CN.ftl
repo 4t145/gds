@@ -2,6 +2,28 @@
 # Keep action names consistent. Variables contain user or agent data; preserve them.
 # Use Fluent selectors for plural forms and message references for shared labels.
 
+## 本地工作区终端
+local-terminal-title = 本地终端
+local-terminal-toggle = 显示／隐藏本地终端
+local-terminal-no-cwd = 请选择本地工作目录，再新建终端。
+local-terminal-remote = 仅本地 IPC 连接可启动本地终端，不会将 TCP 或远端目录当作本机目录。
+local-terminal-resize = 调整终端面板高度
+local-terminal-close-title = 关闭窗口及终端？
+local-terminal-close-message = 将终止此窗口所有工作区中运行的本地终端。取消将保留全部运行状态。
+local-terminal-close-confirm = 终止并关闭
+local-terminal-closing = 正在等待本地终端退出…
+local-terminal-quit-notice = 退出也会终止所有窗口和工作区中的本地终端。
+local-terminal-new = 新建本地终端
+local-terminal-empty = 尚无本地终端。点击 + 在此工作目录中启动 Shell。
+local-terminal-tab-close = 关闭终端
+local-terminal-tab-close-title = 终止此终端？
+local-terminal-tab-close-message = 将停止此终端的 Shell 和运行中的程序，不影响其他终端。
+local-terminal-starting = 正在启动
+local-terminal-running = 运行中
+local-terminal-started-in = 启动目录：{ $path }
+local-terminal-closed = 已关闭
+local-terminal-exited = 已退出（{ $code }）
+
 ## Shared actions
 
 delete-dont-ask = 删除会话时不再提醒

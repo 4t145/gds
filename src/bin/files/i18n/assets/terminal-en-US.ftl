@@ -1,0 +1,17 @@
+files-terminal-new = New terminal
+files-terminal-end = End session
+files-terminal-end-title = End this terminal session?
+files-terminal-end-message = This shell and its running jobs will be stopped. This cannot be undone.
+files-terminal-empty = No sessions. Create a terminal in the current folder.
+files-terminal-started-in = Started in: { $path }
+files-terminal-open-here = Open terminal here
+files-terminal-cwd-unavailable = This location has no accessible local working directory.
+files-terminal-hide = Hide terminal dock
+files-terminal-maximize = Maximize terminal dock
+files-terminal-restore = Restore terminal dock
+files-terminal-resize = Resize terminal dock
+files-terminal-close-title = Close and end running terminal sessions?
+files-terminal-close-tab-message = This file tab’s shell sessions and their running jobs will be stopped. Hiding the dock does not stop them.
+files-terminal-close-window-message = All terminal sessions in this window, including hidden tabs, Home and volume pages, and their running jobs will be stopped.
+files-terminal-terminate-close = End sessions and close
+files-terminal-settings-note = Shell options and scrollback limits apply to new sessions. Existing sessions stay running. Literal shell arguments can be set with terminal.shell_args in Files settings.toml; no shell command string is evaluated.

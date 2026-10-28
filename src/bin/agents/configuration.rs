@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub mod appearance;
 mod connections;
 pub(crate) mod store;
+pub(crate) mod terminal;
 pub(crate) use connections::{ConnectionProfile, Frontend};
 use gpui_kit::{App, Global};
 pub(crate) use store::{Document, Error, Store};

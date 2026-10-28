@@ -194,6 +194,107 @@ fn region_access_keys_preserve_address_editing_and_column_configuration() {
 }
 
 #[test]
+fn file_bindings_do_not_capture_terminal_input_or_terminal_tabs() {
+    let keymap = Keymap::new(bindings());
+    for terminal_context in ["GdsTerminal", super::TERMINAL_TABS_CONTEXT] {
+        // An armed prefix or Volume ancestor must not override the terminal.
+        let contexts = vec![
+            KeyContext::parse("Workspace Volume TabPrefix").expect("workspace context"),
+            KeyContext::parse(terminal_context).expect("terminal context"),
+        ];
+        for stroke in [
+            "ctrl-c",
+            "ctrl-d",
+            "ctrl-n",
+            "ctrl-l",
+            "ctrl-r",
+            "ctrl-w",
+            "ctrl-b",
+            "ctrl-h",
+            "ctrl-shift-c",
+            "ctrl-v",
+            "ctrl-tab",
+            "escape",
+            "delete",
+            "shift-delete",
+            "up",
+            "down",
+            "left",
+            "right",
+        ] {
+            let (resolved, pending) = keymap.bindings_for_input(&[keystroke(stroke)], &contexts);
+            for binding in &resolved {
+                for command in Command::ALL.into_iter().chain([Command::Cancel]) {
+                    assert!(
+                        !binding.action().partial_eq(command.action().as_ref()),
+                        "{terminal_context}: {stroke} must not invoke a file command"
+                    );
+                }
+            }
+            assert!(!pending, "Files cannot arm a prefix from terminal input");
+        }
+        for command in [
+            Command::Settings,
+            Command::Terminal,
+            Command::FocusNotifications,
+            Command::CloseNotification,
+            Command::CloseAllNotifications,
+        ] {
+            let (resolved, pending) =
+                keymap.bindings_for_input(&[keystroke(command.default_stroke())], &contexts);
+            assert!(!pending);
+            assert_eq!(resolved.len(), 1);
+            assert!(resolved[0].action().partial_eq(command.action().as_ref()));
+        }
+    }
+}
+
+#[test]
+fn files_owns_terminal_capability_bindings_and_tab_navigation() {
+    let keymap = Keymap::new(bindings());
+    let inputs = context("Workspace GdsTerminal");
+    let tabs = context("Workspace FilesTerminalTabs");
+    let input_actions: [(&str, Box<dyn gpui_kit::Action>); 7] = [
+        ("ctrl-shift-c", Box::new(gds::terminal::Copy)),
+        ("ctrl-shift-v", Box::new(gds::terminal::Paste)),
+        ("shift-pageup", Box::new(gds::terminal::ScrollPageUp)),
+        ("shift-pagedown", Box::new(gds::terminal::ScrollPageDown)),
+        ("shift-home", Box::new(gds::terminal::ScrollTop)),
+        ("shift-end", Box::new(gds::terminal::ScrollBottom)),
+        ("f6", Box::new(super::ReturnFromTerminal)),
+    ];
+    for (stroke, expected) in input_actions {
+        let (resolved, pending) = keymap.bindings_for_input(&[keystroke(stroke)], &inputs);
+        assert!(!pending);
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].action().partial_eq(expected.as_ref()));
+    }
+    let tab_actions: [(&str, Box<dyn gpui_kit::Action>); 6] = [
+        ("ctrl-n", Box::new(super::NewTerminal)),
+        ("ctrl-w", Box::new(super::CloseTerminal)),
+        ("up", Box::new(super::PreviousTerminal)),
+        ("down", Box::new(super::NextTerminal)),
+        ("enter", Box::new(super::FocusTerminal)),
+        ("f6", Box::new(super::ReturnFromTerminal)),
+    ];
+    for (stroke, expected) in tab_actions {
+        let (resolved, pending) = keymap.bindings_for_input(&[keystroke(stroke)], &tabs);
+        assert!(!pending);
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved[0].action().partial_eq(expected.as_ref()));
+        if stroke != "f6" {
+            assert!(
+                keymap
+                    .bindings_for_input(&[keystroke(stroke)], &inputs)
+                    .0
+                    .is_empty(),
+                "PTY input keeps {stroke}"
+            );
+        }
+    }
+}
+
+#[test]
 fn notification_access_keys_work_from_both_workspaces() {
     let keymap = Keymap::new(bindings());
     for source in [

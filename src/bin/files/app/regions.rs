@@ -11,6 +11,7 @@ pub(super) struct State {
     pub location: LocationTarget,
     pub volume: Option<storage::VolumeId>,
     pub tabs_scroll: ScrollHandle,
+    pub locations_scroll: ScrollHandle,
     pub volumes_scroll: ScrollHandle,
     /// Visiting the optional volume group reveals it for this session.
     pub reveal_volumes: bool,
@@ -26,6 +27,7 @@ impl State {
             location: LocationTarget::Home,
             volume: None,
             tabs_scroll: ScrollHandle::new(),
+            locations_scroll: ScrollHandle::new(),
             volumes_scroll: ScrollHandle::new(),
             reveal_volumes: false,
         }
@@ -52,6 +54,7 @@ impl Browser {
         self.path_editing = false;
         match command {
             Command::FocusLocations => {
+                self.scroll_region_location();
                 self.regions.locations.focus(window, cx);
             }
             Command::FocusTabs => {
@@ -100,6 +103,18 @@ impl Browser {
             .collect()
     }
 
+    fn scroll_region_location(&self) {
+        if let Some(index) = LocationTarget::ALL
+            .iter()
+            .position(|target| *target == self.regions.location)
+        {
+            let heading = usize::from(!self.sidebar_collapsed);
+            self.regions
+                .locations_scroll
+                .scroll_to_item(index + heading);
+        }
+    }
+
     fn scroll_region_tab(&self) {
         if let Some(index) = self
             .tabs
@@ -135,6 +150,7 @@ impl Browser {
                 .position(|target| *target == self.regions.location);
             if let Some(index) = motion.target(current, LocationTarget::ALL.len()) {
                 self.regions.location = LocationTarget::ALL[index];
+                self.scroll_region_location();
             }
         } else if self.regions.tabs.is_focused(window) {
             let current = self

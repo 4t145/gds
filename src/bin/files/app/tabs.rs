@@ -88,6 +88,12 @@ impl Browser {
         if event.keystroke.key != "tab" {
             return;
         }
+        if !self.focus.is_focused(window) {
+            if self.tab_prefix.take().is_some() {
+                cx.notify();
+            }
+            return;
+        }
         let Some(prefix) = self.tab_prefix.take() else {
             return;
         };

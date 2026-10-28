@@ -77,6 +77,7 @@ impl Browser {
     /// owns plain arrows, and an open editor owns every keystroke it receives.
     pub(super) fn list_keys_available(&self, window: &mut Window, cx: &mut App) -> bool {
         !self.settings_open
+            && self.focus.contains_focused(window, cx)
             && !self.regions.sidebar_focused(window, cx)
             && !notifications::is_focused(window, cx)
             && !self.menu_open
@@ -104,13 +105,15 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Capture listeners must positively own focus before touching a key;
+        // checking only that an editor is absent also steals PTY Escape/arrows.
+        if !self.file_selection_focused(window, cx) {
+            return;
+        }
         // Cancelling a pointer drag must not also clear the file selection.
         if event.keystroke.key == "escape" && cx.stop_active_drag(window) {
             cx.stop_propagation();
             window.prevent_default();
-            return;
-        }
-        if !self.file_selection_focused(window, cx) {
             return;
         }
         let modifiers = event.keystroke.modifiers;

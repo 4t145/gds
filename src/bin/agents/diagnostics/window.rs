@@ -81,6 +81,20 @@ pub(crate) fn init(cx: &mut App) {
             Some("BasLogs"),
         ),
     ]);
+    for context in [
+        gds::terminal::INPUT_CONTEXT,
+        crate::workspace::TERMINAL_TABS_CONTEXT,
+    ] {
+        cx.bind_keys([KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "cmd-shift-l"
+            } else {
+                "ctrl-shift-l"
+            },
+            gpui_kit::NoAction,
+            Some(context),
+        )]);
+    }
     for context in ["BasLogsList", "BasLogs > Input"] {
         cx.bind_keys([
             KeyBinding::new("up", PreviousLog, Some(context)),

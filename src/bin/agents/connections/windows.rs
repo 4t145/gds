@@ -48,6 +48,25 @@ pub(crate) fn page_host(cx: &App) -> Option<(WindowHandle<Root>, gpui_kit::Entit
     })
 }
 
+/// Called only after the application-wide quit confirmation has been accepted.
+pub(crate) fn shutdown_terminals(cx: &mut App) -> Vec<gds::terminal::Shutdown> {
+    let hosts: Vec<_> = cx
+        .windows()
+        .into_iter()
+        .filter_map(|window| {
+            let handle = window.downcast::<Root>()?;
+            let root = handle.read(cx).ok()?;
+            crate::diagnostics::content(root, cx)
+                .downcast::<WorkspaceHost>()
+                .ok()
+        })
+        .collect();
+    hosts
+        .into_iter()
+        .flat_map(|host| host.update(cx, |host, cx| host.shutdown_terminals(cx)))
+        .collect()
+}
+
 pub(crate) fn init_windows(runtime: Handle, cwd: PathBuf, compact: bool, cx: &mut App) {
     cx.set_global(Launch {
         runtime,

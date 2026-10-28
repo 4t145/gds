@@ -25,7 +25,6 @@ const TAB_CORNER_CLOSE_ICON: f32 = 11.;
 /// inner padding, the button and the gap in front of it. A page-cycle hint ends
 /// before that space, so the two keys never cover each other.
 const TAB_CLOSE_RESERVE: f32 = ITEM_GAP * 2. + ui::ICON_BUTTON_SIZE;
-const TERMINAL_HEIGHT: f32 = 120.;
 const PANEL_PADDING: f32 = 16.;
 /// Height reserved by Kit's overlay scrollbar at the table's bottom edge.
 pub(super) const SCROLLBAR_LANE: f32 = DataListStyle::SCROLLBAR_LANE;
@@ -41,6 +40,7 @@ impl Render for Browser {
         // and must still hide the close controls.
         self.held_modifier = Self::current_held_modifier(window);
         self.drain_device_removals(cx);
+        self.sync_terminal_cwd(cx);
         if self.settings_open
             || self.collection.is_some()
             || self.menu_open
@@ -77,9 +77,10 @@ impl Render for Browser {
             .h_full()
             .child(content)
             .into_any_element();
-            frame
+            let workspace = frame
                 .workspace(self.render_sidebar(window, cx), content, cx)
-                .into_any_element()
+                .into_any_element();
+            self.terminal_workspace(workspace, cx)
         };
         let footer = frame.footer(
             self.render_location_scope(cx),
@@ -87,8 +88,6 @@ impl Render for Browser {
             self.render_footer_controls(window, cx),
             cx,
         );
-        let panel = (!self.settings_open && self.terminal_visible)
-            .then(|| self.render_terminal_placeholder(&frame, cx));
         let mut context = KeyContext::parse(if self.settings_open {
             SETTINGS_CONTEXT
         } else {
@@ -132,6 +131,7 @@ impl Render for Browser {
                 on_action: (cx, Self::on_previous_tab).Context::listener;
                 on_action: (cx, Self::on_sidebar).Context::listener;
                 on_action: (cx, Self::on_terminal).Context::listener;
+                on_action: (cx, Self::on_return_from_terminal).Context::listener;
                 on_action: (cx, Self::on_edit_location).Context::listener;
                 on_action: (cx, Self::on_back).Context::listener;
                 on_action: (cx, Self::on_forward).Context::listener;
@@ -194,7 +194,7 @@ impl Render for Browser {
                 on_action: (cx, Self::on_cancel).Context::listener;
                 capture_key_up: (cx, Self::on_tab_key_up).Context::listener;
                 on_modifiers_changed: (cx, Self::on_modifiers_changed).Context::listener;
-            } [toolbar, body, ..panel, footer,
+            } [toolbar, body, footer,
                 ..selection_menu,
                 @if (let Some(overlay) = notification_overlay)
                     $(overlay),
@@ -246,7 +246,9 @@ impl Browser {
         let controls = el! {
             .div { flex; items_center; gap: SMALL_GAP.px; w_full; min_w_0 } [sidebar, content]
         };
-        frame.toolbar(menu, controls.into_any_element(), cx)
+        let window_controls =
+            ui::window::WindowControls::new().on_close_window(cx.listener(Self::on_close_window));
+        frame.toolbar_with_window_controls(menu, controls.into_any_element(), window_controls, cx)
     }
 
     fn render_navigation(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -829,31 +831,6 @@ impl Browser {
         }
     }
 
-    fn render_terminal_placeholder(&self, frame: &Frame, cx: &mut Context<Self>) -> AnyElement {
-        let compact = self.sidebar_collapsed;
-        let on_open = cx.listener(Self::click_external_terminal(self.current_path()));
-        let sidebar = el! {
-            .div { p: ui::SIDEBAR_PADDING.px } [
-                .div { flex; items_center; h: ui::SIDEBAR_ITEM_HEIGHT.px; gap: ITEM_GAP.px; px: ITEM_GAP.px;
-                    @if (compact) justify_center; @end;
-                } [
-                    IconName::Terminal.Icon::new { size: ui::SIDEBAR_ICON_SIZE.px },
-                    @if (!compact) $i18n::text("settings-terminal", cx), @end,
-                ],
-            ]
-        };
-        let content = el! {
-            .div { flex; size_full; min_w_0 } [
-                .div { flex_1; min_w_0; p: PANEL_PADDING.px; flex; flex_col; gap: ITEM_GAP.px } [
-                    .div { text_color: $cx.theme().muted_foreground } [$i18n::text("terminal-not-ready", cx)],
-                    "external-terminal".Button::new { small; label: $i18n::text("terminal-open-external", cx); icon: IconName::Terminal.Icon::new; on_click: on_open },
-                ],
-            ]
-        };
-        let panel = frame.workspace(sidebar.into_any_element(), content.into_any_element(), cx);
-        el! { panel { flex_none; h: TERMINAL_HEIGHT.px; border_t_1; border_color: $cx.theme().border; into_any_element } }
-    }
-
     /// Window-level toggles live in the footer, never duplicated in the toolbar.
     ///
     /// A picker replaces the terminal toggle with its own decisions, so its
@@ -868,7 +845,8 @@ impl Browser {
         }
         let terminal = self
             .command_button("terminal", IconName::Terminal, Command::Terminal, cx)
-            .active(self.terminal_visible);
+            .active(self.terminal_visible())
+            .disabled(self.active().is_none());
         el! { .div { flex; items_center; flex_shrink_0 } [terminal] }.into_any_element()
     }
 

@@ -2,6 +2,28 @@
 # Keep action names consistent. Variables contain user or agent data; preserve them.
 # Use Fluent selectors for plural forms and message references for shared labels.
 
+## Local workspace terminals
+local-terminal-title = Local terminal
+local-terminal-toggle = Toggle local terminal
+local-terminal-no-cwd = Select a local working directory to create a terminal.
+local-terminal-remote = Local terminals require a local IPC connection. TCP and remote paths are not used locally.
+local-terminal-resize = Resize terminal dock
+local-terminal-close-title = Close window and terminals?
+local-terminal-close-message = Running local terminals in all workspaces of this window will be terminated. Cancel keeps everything running.
+local-terminal-close-confirm = Terminate and close
+local-terminal-closing = Waiting for local terminals to stop…
+local-terminal-quit-notice = Quitting also terminates local terminals in every window and workspace.
+local-terminal-new = New local terminal
+local-terminal-empty = No local terminals. Use + to start a shell in this working directory.
+local-terminal-tab-close = Close terminal
+local-terminal-tab-close-title = Terminate this terminal?
+local-terminal-tab-close-message = Its shell and running programs will be stopped. Other terminals are not affected.
+local-terminal-starting = Starting
+local-terminal-running = Running
+local-terminal-started-in = Started in { $path }
+local-terminal-closed = Closed
+local-terminal-exited = Exited ({ $code })
+
 ## Shared actions
 
 logs-title = Debug logs

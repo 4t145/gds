@@ -41,6 +41,50 @@ fn frontend_updates_preserve_other_sections_and_reject_stale_edits() {
     ));
 }
 
+#[test]
+fn terminal_settings_merge_legacy_sections_and_reject_stale_writers() {
+    let directory = tempfile::tempdir().expect("settings directory");
+    let store = Store::at(directory.path().join("settings.json"));
+    std::fs::write(store.path(), r#"{"daemon":{"untouched":true},"future":42}"#)
+        .expect("legacy settings");
+    let mut first = store.load().expect("defaults for absent terminal");
+    let mut stale = store.load().expect("second editor");
+    assert_eq!(
+        first.settings.terminal,
+        gds::terminal::Preferences::default()
+    );
+    let candidate = gds::terminal::Preferences {
+        font_size: 18.,
+        login_shell: true,
+        ..Default::default()
+    };
+    store
+        .save_terminal(&mut first, candidate.clone())
+        .expect("terminal save");
+    let mut appearance = stale.settings.appearance.clone();
+    appearance.ui_font_size = Some(20.);
+    store
+        .save_appearance(&mut stale, appearance)
+        .expect("independent section merge");
+    assert_eq!(store.load().expect("reload").settings.terminal, candidate);
+    let mut conflict = first.clone();
+    store
+        .save_terminal(&mut first, gds::terminal::Preferences::default())
+        .expect("new revision");
+    assert!(matches!(
+        store.save_terminal(&mut conflict, candidate),
+        Err(Error::Conflict {
+            section: "terminal",
+            ..
+        })
+    ));
+    let raw: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(store.path()).expect("settings bytes"))
+            .expect("JSON");
+    assert_eq!(raw["daemon"]["untouched"], true);
+    assert_eq!(raw["future"], 42);
+}
+
 #[cfg(unix)]
 #[test]
 fn managed_settings_can_be_read_but_never_replaced() {

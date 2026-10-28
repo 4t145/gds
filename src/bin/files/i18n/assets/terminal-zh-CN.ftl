@@ -1,0 +1,17 @@
+files-terminal-new = 新建终端
+files-terminal-end = 结束会话
+files-terminal-end-title = 结束此终端会话？
+files-terminal-end-message = 此 shell 及其运行中的作业将被停止，且无法撤销。
+files-terminal-empty = 暂无会话。可在当前文件夹新建终端。
+files-terminal-started-in = 启动目录：{ $path }
+files-terminal-open-here = 在此打开终端
+files-terminal-cwd-unavailable = 此位置没有可访问的本地工作目录。
+files-terminal-hide = 收起终端面板
+files-terminal-maximize = 最大化终端面板
+files-terminal-restore = 还原终端面板
+files-terminal-resize = 调整终端面板高度
+files-terminal-close-title = 关闭并结束正在运行的终端会话？
+files-terminal-close-tab-message = 此文件标签中的 shell 会话及其作业将被停止。仅收起面板不会停止它们。
+files-terminal-close-window-message = 此窗口中所有终端会话及其作业将被停止，包括隐藏标签、主页和卷页面中的会话。
+files-terminal-terminate-close = 结束会话并关闭
+files-terminal-settings-note = Shell 选项与滚屏上限应用于新会话，已有会话继续运行。可在 Files 的 settings.toml 中通过 terminal.shell_args 设置独立参数；不会将其当作 shell 命令求值。

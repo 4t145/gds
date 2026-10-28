@@ -14,6 +14,8 @@ mod input_layout;
 mod interaction;
 mod layout;
 mod links;
+mod local_terminal;
+pub(crate) use local_terminal::TABS_CONTEXT as TERMINAL_TABS_CONTEXT;
 mod markdown;
 mod menus;
 mod message_actions;
@@ -88,6 +90,7 @@ actions!(
         ToggleSidebar,
         ToggleMode,
         ToggleOutput,
+        ToggleTerminal,
         NextThread,
         PreviousThread,
         Dismiss,
@@ -99,43 +102,102 @@ actions!(
 pub(super) fn bind_keys(cx: &mut App) {
     composer::bind_keys(cx);
     shortcuts::bind_keys(cx);
+    local_terminal::bind_keys(cx);
     cx.bind_keys([
-        KeyBinding::new("ctrl-n", NewSession, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-f", FocusSearch, Some("BasWorkspace")),
+        KeyBinding::new(
+            "ctrl-n",
+            NewSession,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-f",
+            FocusSearch,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
         // Override Input's own search action while editing a Agents field.
-        KeyBinding::new("ctrl-f", FocusSearch, Some("BasWorkspace > Input")),
-        KeyBinding::new("ctrl-l", FocusComposer, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-b", ToggleSidebar, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-shift-m", ToggleMode, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-o", ToggleOutput, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-tab", NextThread, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-shift-tab", PreviousThread, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-tab", NextThread, Some("BasWorkspace > Input")),
+        KeyBinding::new(
+            "ctrl-f",
+            FocusSearch,
+            Some("BasWorkspace > Input && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-l",
+            FocusComposer,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-b",
+            ToggleSidebar,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-shift-m",
+            ToggleMode,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-o",
+            ToggleOutput,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-tab",
+            NextThread,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
         KeyBinding::new(
             "ctrl-shift-tab",
             PreviousThread,
-            Some("BasWorkspace > Input"),
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
         ),
-        KeyBinding::new("escape", Dismiss, Some("BasWorkspace")),
+        KeyBinding::new(
+            "ctrl-tab",
+            NextThread,
+            Some("BasWorkspace > Input && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-shift-tab",
+            PreviousThread,
+            Some("BasWorkspace > Input && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
         KeyBinding::new(
             "escape",
             Dismiss,
-            Some("BasWorkspace > BasSidebarSearch > Input"),
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
         ),
-        KeyBinding::new("f5", Refresh, Some("BasWorkspace")),
-        KeyBinding::new("ctrl-end", ScrollConversationToEnd, Some("BasWorkspace")),
+        KeyBinding::new(
+            "escape",
+            Dismiss,
+            Some("BasWorkspace > BasSidebarSearch > Input && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "f5",
+            Refresh,
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
         KeyBinding::new(
             "ctrl-end",
             ScrollConversationToEnd,
-            Some("BasWorkspace > Input"),
+            Some("BasWorkspace && !GdsTerminal && !AgentsTerminalTabs"),
         ),
         KeyBinding::new(
             "ctrl-end",
             ScrollConversationToEnd,
-            Some("BasWorkspace > BasComposer > Input"),
+            Some("BasWorkspace > Input && !GdsTerminal && !AgentsTerminalTabs"),
+        ),
+        KeyBinding::new(
+            "ctrl-end",
+            ScrollConversationToEnd,
+            Some("BasWorkspace > BasComposer > Input && !GdsTerminal && !AgentsTerminalTabs"),
         ),
     ]);
 }
+
+pub(crate) enum Event {
+    CloseWindow,
+}
+
+impl gpui_kit::EventEmitter<Event> for Workspace {}
 
 pub(super) struct Workspace {
     window: state::WindowState,
@@ -146,6 +208,7 @@ pub(super) struct Workspace {
     composer: state::ComposerState,
     renaming: state::RenameState,
     audio: Entity<crate::audio::Player>,
+    terminals: local_terminal::Terminals,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -178,13 +241,6 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let view = cx.entity().downgrade();
-        window.on_window_should_close(cx, move |window, cx| {
-            let _ = view.update(cx, |this, cx| {
-                this.prepare_to_close(window, cx);
-            });
-            true
-        });
         let search = cx
             .new(|cx| InputState::new(window, cx).placeholder(crate::i18n::tr!("session-search")));
         let composer_state = state::ComposerState::new(window, cx, compact);
@@ -200,6 +256,9 @@ impl Workspace {
         let mut subscriptions = vec![
             cx.observe(&profiles, |_, _, cx| cx.notify()),
             cx.observe(&audio, |_, _, cx| cx.notify()),
+            cx.observe_global::<crate::configuration::terminal::Current>(|this, cx| {
+                this.update_terminal_preferences(cx);
+            }),
             cx.on_app_quit(|this, cx| {
                 this.persist_read_state(cx);
                 let pending = this.navigation.restore.pending_save.clone();
@@ -330,6 +389,8 @@ impl Workspace {
             }
         });
         let list = Self::timeline_list(cx);
+        let terminals = local_terminal::Terminals::new(cx);
+        subscriptions.push(cx.observe(&terminals.split, |_, _, cx| cx.notify()));
         Self {
             window: state::WindowState::new(window.window_handle(), compact),
             backend: state::BackendState::new(connection, server, agent_metadata, event_task),
@@ -339,6 +400,7 @@ impl Workspace {
             composer: composer_state,
             renaming,
             audio,
+            terminals,
             _subscriptions: subscriptions,
         }
     }
@@ -784,6 +846,7 @@ impl Workspace {
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_terminal_panel(window, cx);
         self.measure_composer(cx);
         self.sync_foreground(window);
         self.sync_reply_visibility(window, cx);

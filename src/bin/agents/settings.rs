@@ -21,6 +21,7 @@ mod appearance;
 mod connections;
 mod form;
 mod keybindings;
+mod terminal;
 pub(crate) mod window;
 
 pub(crate) enum Event {
@@ -53,6 +54,7 @@ enum Category {
     Sessions,
     Connections,
     Keybindings,
+    Terminal,
     Agents,
     SessionManagement,
 }
@@ -73,6 +75,7 @@ impl Scope {
                 Category::Sessions,
                 Category::Connections,
                 Category::Keybindings,
+                Category::Terminal,
             ],
             Self::Backend => &[Category::SessionManagement, Category::Agents],
         }
@@ -87,11 +90,12 @@ impl Scope {
 }
 
 impl Category {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Appearance,
         Self::Sessions,
         Self::Connections,
         Self::Keybindings,
+        Self::Terminal,
         Self::SessionManagement,
         Self::Agents,
     ];
@@ -107,6 +111,7 @@ impl Category {
             Self::Sessions => IconName::MessageSquare,
             Self::Connections => IconName::Server,
             Self::Keybindings => IconName::Keyboard,
+            Self::Terminal => IconName::Terminal,
             Self::Agents => IconName::Bot,
             Self::SessionManagement => IconName::Settings,
         }
@@ -114,9 +119,11 @@ impl Category {
 
     fn scope(self) -> Scope {
         match self {
-            Self::Appearance | Self::Sessions | Self::Connections | Self::Keybindings => {
-                Scope::Frontend
-            }
+            Self::Appearance
+            | Self::Sessions
+            | Self::Connections
+            | Self::Keybindings
+            | Self::Terminal => Scope::Frontend,
             Self::SessionManagement | Self::Agents => Scope::Backend,
         }
     }
@@ -127,6 +134,7 @@ impl Category {
             Self::Sessions => "settings-sessions",
             Self::Connections => "settings-connections",
             Self::Keybindings => "settings-keybindings",
+            Self::Terminal => "settings-terminal",
             Self::Agents => "settings-agents",
             Self::SessionManagement => "settings-session-management",
         }
@@ -138,6 +146,7 @@ impl Category {
             Self::Sessions => crate::i18n::tr!("settings-sessions"),
             Self::Connections => crate::i18n::tr!("settings-connections"),
             Self::Keybindings => crate::i18n::tr!("settings-keybindings"),
+            Self::Terminal => crate::i18n::tr!("local-terminal-title"),
             Self::Agents => crate::i18n::tr!("settings-agents"),
             Self::SessionManagement => crate::i18n::tr!("settings-session-management"),
         }
@@ -145,6 +154,12 @@ impl Category {
 
     fn for_query(query: &str) -> Self {
         let query = query.trim().to_lowercase();
+        if ["terminal", "shell", "终端"]
+            .iter()
+            .any(|word| query.contains(word))
+        {
+            return Self::Terminal;
+        }
         if ["shortcut", "keybinding", "快捷键"]
             .iter()
             .any(|word| query.contains(word))
@@ -203,11 +218,12 @@ impl Category {
 
 pub(crate) struct Settings {
     focus: FocusHandle,
-    page_focus: [FocusHandle; 6],
+    page_focus: [FocusHandle; 7],
     sidebar_compact: bool,
     search: Entity<InputState>,
     appearance: Entity<appearance::AppearancePage>,
     connections: Entity<connections::Page>,
+    terminal: Entity<terminal::Page>,
     profiles: Entity<crate::connections::Profiles>,
     agents: Entity<agents::Agents>,
     _agents_subscription: Subscription,
@@ -233,6 +249,7 @@ impl Settings {
         let appearance = cx.new(|cx| appearance::AppearancePage::new(editor, window, cx));
         let profiles = crate::connections::shared(cx);
         let connections = cx.new(|cx| connections::Page::new(window, cx));
+        let terminal = cx.new(|cx| terminal::Page::new(window, cx));
         let acp = acp::shared(window, cx);
         let acp_subscription = cx.observe(&acp, |_, _, cx| cx.notify());
         let agents_subscription = cx.observe(&agents, Self::on_agents_changed);
@@ -240,6 +257,7 @@ impl Settings {
             cx.subscribe_in(&search, window, Self::on_search),
             cx.observe(&appearance, |_, _, cx| cx.notify()),
             cx.observe(&connections, |_, _, cx| cx.notify()),
+            cx.observe(&terminal, |_, _, cx| cx.notify()),
             cx.observe(&profiles, |_, _, cx| cx.notify()),
             cx.observe_global_in::<crate::agents::catalog::Service>(
                 window,
@@ -254,6 +272,7 @@ impl Settings {
             search,
             appearance,
             connections,
+            terminal,
             profiles,
             agents,
             _agents_subscription: agents_subscription,
@@ -289,6 +308,7 @@ impl Settings {
                             | Category::Connections
                             | Category::SessionManagement
                             | Category::Keybindings
+                            | Category::Terminal
                     )
                 {
                     self.category = category;
@@ -382,6 +402,12 @@ impl Settings {
                 self.acp.update(cx, |page, cx| page.open(window, cx));
                 cx.notify();
             }
+            Category::Terminal => {
+                self.search
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+                self.category = Category::Terminal;
+                cx.notify();
+            }
             Category::Keybindings => {
                 self.search
                     .update(cx, |input, cx| input.set_value("", window, cx));
@@ -429,7 +455,9 @@ impl Settings {
                 self.agents.read(cx).settings_path().map(ToOwned::to_owned)
             }
             Category::Keybindings => None,
-            Category::Connections => Some(crate::configuration::store(cx).path().to_owned()),
+            Category::Connections | Category::Terminal => {
+                Some(crate::configuration::store(cx).path().to_owned())
+            }
         }
     }
 
@@ -802,6 +830,7 @@ impl Render for Settings {
                 Category::SessionManagement => self.acp.read(cx).status(cx),
                 Category::Connections => self.connections.read(cx).status(cx),
                 Category::Keybindings => String::new(),
+                Category::Terminal => self.terminal.read(cx).message.clone(),
             }
         } else {
             self.connection_message.clone()
@@ -839,12 +868,11 @@ impl Render for Settings {
                 ],
             ]
         }.into_any_element();
-        let window_controls = gds::ui::window::WindowControls::new().on_close_window(cx.listener(
-            |this, _, window, cx| {
-                this.prepare_to_close(window, cx);
+        let window_controls =
+            gds::ui::window::WindowControls::new().on_close_window(cx.listener(|_, _, _, cx| {
+                // The owner decides whether closing requires PTY confirmation.
                 cx.emit(Event::CloseWindow);
-            },
-        ));
+            }));
         let toolbar =
             frame.toolbar_with_window_controls(back, toolbar_controls, window_controls, cx);
         let navigation = el! {
@@ -871,6 +899,7 @@ impl Render for Settings {
             Category::Agents => self.agents.clone().into_any_element(),
             Category::SessionManagement => self.acp.clone().into_any_element(),
             Category::Connections => self.connections.clone().into_any_element(),
+            Category::Terminal => self.terminal.clone().into_any_element(),
             Category::Keybindings => keybindings::render(self.search.read(cx).value().as_ref(), cx),
         };
         let header = self.header(cx).into_any_element();

@@ -25,7 +25,13 @@ fn modified_preferences() -> Preferences {
             family: Some("Noto Sans".to_owned()),
             size: 18.0,
         },
+        terminal: gds::terminal::Preferences {
+            font_size: 18.,
+            shell_args: vec!["--private".into()],
+            ..Default::default()
+        },
         files: FilesPreferences {
+            terminal_content_height: Some(360.),
             sidebar: Default::default(),
             volume_mount_points: Default::default(),
             show_hidden: true,
@@ -143,6 +149,28 @@ fn font_family_and_size_reset_independently_of_every_other_preference() {
     assert_eq!(size.font.size, Preferences::default().font.size);
     assert_eq!(size.font.family, before.font.family);
     assert_eq!(size.files, before.files);
+}
+
+#[test]
+fn terminal_edits_and_general_resets_preserve_other_preferences() {
+    let before = modified_preferences();
+    let mut changed = before.clone();
+    reset_generated(&mut changed.terminal, "font_size");
+    assert_eq!(
+        changed.terminal.font_size,
+        gds::terminal::Preferences::default().font_size
+    );
+    assert_eq!(changed.terminal.shell_args, before.terminal.shell_args);
+    assert_eq!(changed.font, before.font);
+    assert_eq!(changed.files, before.files);
+
+    let mut general = before.clone();
+    reset_generated(&mut general, "language");
+    assert_eq!(general.terminal, before.terminal);
+    assert_eq!(
+        general.files.terminal_content_height,
+        before.files.terminal_content_height
+    );
 }
 
 #[test]

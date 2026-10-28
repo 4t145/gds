@@ -12,6 +12,7 @@ pub fn install(language: Language, cx: &mut App) -> Result<(), Error> {
             include_str!("i18n/assets/details-en-US.ftl"),
             include_str!("i18n/assets/font-en-US.ftl"),
             include_str!("i18n/assets/recycle-en-US.ftl"),
+            include_str!("i18n/assets/terminal-en-US.ftl"),
         ],
         Language::Chinese => [
             include_str!("i18n/assets/zh-CN.ftl"),
@@ -20,6 +21,7 @@ pub fn install(language: Language, cx: &mut App) -> Result<(), Error> {
             include_str!("i18n/assets/details-zh-CN.ftl"),
             include_str!("i18n/assets/font-zh-CN.ftl"),
             include_str!("i18n/assets/recycle-zh-CN.ftl"),
+            include_str!("i18n/assets/terminal-zh-CN.ftl"),
         ],
     };
     gds::i18n::install_resources(language, &sources, cx)

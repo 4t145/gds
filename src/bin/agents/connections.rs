@@ -8,8 +8,8 @@ pub(crate) mod presentation;
 mod windows;
 pub(crate) use windows::WorkspaceHost;
 pub(crate) use windows::{
-    bind_page_keys, init_windows, open_for, page_host, register, target_page, window_options,
-    workspace_view,
+    bind_page_keys, init_windows, open_for, page_host, register, shutdown_terminals, target_page,
+    window_options, workspace_view,
 };
 
 #[cfg(all(test, feature = "gui-tests"))]

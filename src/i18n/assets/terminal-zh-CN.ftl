@@ -1,0 +1,16 @@
+gds-terminal-starting = 正在启动 Shell…
+gds-terminal-start-failed = 无法启动终端
+gds-terminal-exited = 会话已结束
+gds-terminal-stopping = 正在结束会话…
+gds-terminal-io-failed = 终端读写失败
+gds-terminal-exit-status = 会话已结束 · 退出码 { $code } · 信号 { $signal }
+gds-terminal-copy = 复制选中内容
+gds-terminal-paste = 粘贴
+gds-terminal-settings-shell = Shell 可执行文件
+gds-terminal-settings-shell-hint = 留空使用账户 Shell；自定义时填写可执行文件的绝对路径。
+gds-terminal-settings-login = 登录 Shell（新会话）
+gds-terminal-settings-font = 终端字体
+gds-terminal-settings-font-size = 字号
+gds-terminal-settings-scrollback = 滚屏行数（新会话）
+gds-terminal-settings-cursor-blink = 光标闪烁
+gds-terminal-settings-alt-escape = Alt 发送 Escape

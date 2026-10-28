@@ -111,10 +111,14 @@ impl Browser {
     fn sidebar_locations(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let locations: Vec<_> = LocationTarget::ALL
             .into_iter()
-            .map(|target| self.render_location(target, window, cx))
+            .map(|target| {
+                let location = self.render_location(target, window, cx);
+                el! { .div { flex_shrink_0; w_full; } [location] }.into_any_element()
+            })
             .collect();
         let content = el! {
-            .div { # "sidebar-locations"; flex; flex_col; flex_shrink_0; w_full;
+            .div { # "sidebar-locations"; flex; flex_col; min_h_0; w_full; overflow_y_scroll;
+                track_scroll: $&self.regions.locations_scroll;
                 px: ui::SIDEBAR_PADDING.px; pb: ui::SIDEBAR_PADDING.px; gap: ROW_GAP.px;
             } [
                 @if (!self.sidebar_collapsed)
@@ -132,8 +136,11 @@ impl Browser {
             window,
             cx,
         )
+        .flex()
+        .flex_col()
         .w_full()
-        .flex_shrink_0()
+        .flex_shrink_1()
+        .overflow_hidden()
         .child(content)
         .into_any_element()
     }
@@ -161,6 +168,16 @@ impl Browser {
             || self.regions.volumes.is_focused(window)
             || self.regions.volumes.contains_focused(window, cx);
         let heading = (!self.sidebar_collapsed).then(|| self.device_heading(window, cx));
+        // A large terminal dock must not let the fixed locations consume every
+        // pixel of the tab strip. Locations scroll only when space is scarce.
+        let workspace_minimum = MIN_TABS_HEIGHT
+            + if show_volumes && expanded {
+                MIN_DEVICES_HEIGHT + ui::split::DIVIDER_HEIGHT
+            } else if show_volumes && !self.sidebar_collapsed {
+                HEADER_HEIGHT
+            } else {
+                0.
+            };
         let workspace = if show_volumes && expanded {
             let device_area = el! {
                 .div { flex; flex_col; size_full; min_h_0; px: ui::SIDEBAR_PADDING.px } [
@@ -223,7 +240,7 @@ impl Browser {
         };
         el! {
             .div { # "file-sidebar-content"; flex; flex_col; size_full; min_h_0; overflow_hidden } [
-                .div { flex_1; min_h_0; overflow_hidden } [workspace],
+                .div { flex_1; min_h: workspace_minimum.px; overflow_hidden } [workspace],
                 locations,
             ]
         }

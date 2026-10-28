@@ -156,7 +156,7 @@ Zed 可借鉴交互与 GPUI 输入 / 渲染方式，但它的 `terminal`、`term
 
 ### 用户的 shell 与配置
 
-- 来源顺序：用户显式设置 → 有效 `$SHELL` → 账户数据库中的 shell。不硬编码 `/bin/bash`。
+- 来源顺序：用户显式设置 → 账户数据库中的 shell → 有效 `$SHELL`。账户 shell 不被 Nix 等开发环境临时注入的非交互 Bash 覆盖；不硬编码 `/bin/bash`。
 - 使用真实 PTY，Linux 默认交互式、非 login；提供 login 选择与显式参数。不同 shell 的参数 / 启动规则不同，不能统一追加 `-il`。
 - 保留登录会话的必要环境和 `HOME`、`XDG_CONFIG_HOME`、`ZDOTDIR` 等位置，让 shell 自己读取 rc / profile。GDS 不解析、复制、改写或手工 source 用户配置。
 - 在进程启动时设置 cwd，不拼接 `cd <path>` 命令。目录失效 / 无权访问时说明失败，不静默换到主目录；用户 rc 主动切换目录则尊重它。

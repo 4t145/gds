@@ -274,6 +274,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         if !self.list_keys_available(window, cx) {
+            cx.propagate();
             return;
         }
         let moved = match self.collection {
@@ -423,6 +424,7 @@ impl Browser {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
+        self.focus.focus(window, cx);
         self.dispatch(Command::EditLocation, window, cx);
     }
 
@@ -431,6 +433,13 @@ impl Browser {
     ) -> impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) {
         move |this, _, window, cx| {
             cx.stop_propagation();
+            // A deliberate toolbar click may leave the terminal; keyboard
+            // actions cannot cross that focus boundary implicitly.
+            if this.terminal_focused(window, cx)
+                && !matches!(command, Command::Terminal | Command::Settings)
+            {
+                this.focus.focus(window, cx);
+            }
             this.dispatch(command, window, cx);
         }
     }
@@ -469,18 +478,13 @@ impl Browser {
         move |this, _, window, cx| {
             cx.stop_propagation();
             if path == this.current_path() {
+                this.focus.focus(window, cx);
                 this.dispatch(Command::EditLocation, window, cx);
             } else {
                 this.navigate(path.clone(), cx);
                 this.focus.focus(window, cx);
             }
         }
-    }
-
-    pub(super) fn click_external_terminal(
-        path: PathBuf,
-    ) -> impl Fn(&mut Self, &ClickEvent, &mut Window, &mut Context<Self>) {
-        move |this, _, _, cx| this.open_external_terminal(path.clone(), cx)
     }
 
     pub(super) fn on_favorite(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {

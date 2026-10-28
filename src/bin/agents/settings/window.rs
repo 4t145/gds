@@ -257,12 +257,17 @@ impl Host {
             unregister(window.window_handle().window_id(), cx);
             true
         });
-        let events = cx.subscribe_in(&settings, window, |_, _, event, window, cx| match event {
-            super::Event::Close | super::Event::CloseWindow => {
-                unregister(window.window_handle().window_id(), cx);
-                window.remove_window();
-            }
-        });
+        let events = cx.subscribe_in(
+            &settings,
+            window,
+            |_, settings, event, window, cx| match event {
+                super::Event::Close | super::Event::CloseWindow => {
+                    settings.update(cx, |settings, cx| settings.prepare_to_close(window, cx));
+                    unregister(window.window_handle().window_id(), cx);
+                    window.remove_window();
+                }
+            },
+        );
         settings.read(cx).focus_handle(cx).focus(window, cx);
         window.activate_window();
         Self {

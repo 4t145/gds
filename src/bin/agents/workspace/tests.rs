@@ -13,6 +13,7 @@ mod directories;
 mod history;
 mod interruption;
 mod keytips;
+mod local_terminal;
 mod navigation;
 mod operations;
 mod options;

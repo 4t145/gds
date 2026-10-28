@@ -12,6 +12,7 @@ use super::{Frontend, appearance::Appearance};
 pub(crate) struct Settings {
     pub appearance: Appearance,
     pub frontend: Frontend,
+    pub terminal: gds::terminal::Preferences,
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +83,10 @@ impl Store {
         settings
             .frontend
             .validate()
+            .map_err(|error| self.invalid(error))?;
+        settings
+            .terminal
+            .validate()
             .map_err(|error| self.invalid(error))
     }
 
@@ -103,6 +108,16 @@ impl Store {
         frontend: Frontend,
     ) -> Result<(), Error> {
         self.save(document, Section::Frontend(frontend))
+    }
+
+    /// # Errors
+    /// Rejects stale terminal sections, managed files and concurrent edits.
+    pub(crate) fn save_terminal(
+        &self,
+        document: &mut Document,
+        terminal: gds::terminal::Preferences,
+    ) -> Result<(), Error> {
+        self.save(document, Section::Terminal(terminal))
     }
 
     fn save(&self, document: &mut Document, section: Section) -> Result<(), Error> {
@@ -128,6 +143,16 @@ impl Store {
                 current.settings.frontend = frontend;
                 "frontend"
             }
+            Section::Terminal(terminal) => {
+                if current.settings.terminal != document.settings.terminal {
+                    return Err(Error::Conflict {
+                        path: self.path().into(),
+                        section: "terminal",
+                    });
+                }
+                current.settings.terminal = terminal;
+                "terminal"
+            }
         };
         self.validate(&current.settings)?;
         let mut raw: serde_json::Value = match &current.bytes {
@@ -136,6 +161,7 @@ impl Store {
         };
         let value = match name {
             "appearance" => serde_json::to_value(&current.settings.appearance),
+            "terminal" => serde_json::to_value(&current.settings.terminal),
             _ => serde_json::to_value(&current.settings.frontend),
         }
         .map_err(|error| self.invalid(error))?;
@@ -154,6 +180,7 @@ impl Store {
 enum Section {
     Appearance(Appearance),
     Frontend(Frontend),
+    Terminal(gds::terminal::Preferences),
 }
 
 #[cfg(test)]
