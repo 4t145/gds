@@ -117,7 +117,7 @@ impl Workspace {
         self.terminals.panels.get(&self.terminal_group()?).cloned()
     }
 
-    pub(super) fn sync_terminal_panel(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn sync_terminal_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.terminals.visible || self.window.compact {
             return;
         }
@@ -132,7 +132,26 @@ impl Workspace {
                 panel.set_cwd(Some(group.cwd.clone()), cx);
                 panel
             });
-            self.terminals.panels.insert(group.clone(), panel);
+            self.terminals.panels.insert(group, panel);
+        }
+        if let Some(panel) = self.terminal_panel()
+            && panel.read(cx).needs_initial_reveal()
+        {
+            // This sync also runs during rendering. Start only after the frame,
+            // provided this owner is still visible and selected.
+            let owner = cx.entity().downgrade();
+            window.defer(cx, move |window, cx| {
+                let _ = owner.update(cx, |this, cx| {
+                    if this.terminals.visible
+                        && this.window.presented
+                        && !this.window.compact
+                        && this.terminal_panel().is_some_and(|active| active == panel)
+                        && panel.read(cx).needs_initial_reveal()
+                    {
+                        panel.update(cx, |panel, cx| panel.reveal(window, cx));
+                    }
+                });
+            });
         }
     }
 
@@ -146,7 +165,7 @@ impl Workspace {
         self.sync_terminal_panel(window, cx);
         if self.terminals.visible {
             if let Some(panel) = self.terminal_panel() {
-                panel.update(cx, |panel, cx| panel.focus(window, cx));
+                panel.update(cx, |panel, cx| panel.reveal(window, cx));
             }
         } else {
             self.focus_input(window, cx);

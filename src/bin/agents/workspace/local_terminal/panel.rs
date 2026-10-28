@@ -104,6 +104,24 @@ impl Panel {
         cx.notify();
     }
 
+    pub fn needs_initial_reveal(&self) -> bool {
+        !self.closing && self.next_id == 0 && self.cwd.is_some()
+    }
+
+    /// Opening an empty dock starts once; redraws and closing its last tab do not.
+    pub fn reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closing {
+            return;
+        }
+        if self.entries.is_empty()
+            && let Some(cwd) = self.cwd.clone()
+        {
+            self.open(cwd, window, cx);
+        } else {
+            self.focus(window, cx);
+        }
+    }
+
     fn active_terminal(&self) -> Option<&Entity<Terminal>> {
         self.entries
             .iter()

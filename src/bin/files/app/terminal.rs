@@ -122,7 +122,7 @@ impl Browser {
         self.path_editing = false;
         self.terminal_visible = !self.terminal_visible;
         if self.terminal_visible {
-            panel.update(cx, |panel, cx| panel.focus(window, cx));
+            panel.update(cx, |panel, cx| panel.reveal(window, cx));
         } else {
             self.focus.focus(window, cx);
         }
@@ -158,9 +158,27 @@ impl Browser {
 
     /// File navigation only changes the *next* new-session target. It never
     /// writes a command into the active PTY, even when the shell looks idle.
-    pub(super) fn sync_terminal_cwd(&mut self, cx: &mut Context<Self>) {
-        if self.terminal_visible() {
-            self.ensure_terminal(cx);
+    pub(super) fn sync_terminal_cwd(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.terminal_visible()
+            && let Some(panel) = self.ensure_terminal(cx)
+            && panel.read(cx).needs_initial_reveal()
+        {
+            // Rendering may discover a new directory owner, but never starts a PTY.
+            // Recheck presentation after the frame so hiding/switching cancels startup.
+            let owner = cx.entity().downgrade();
+            window.defer(cx, move |window, cx| {
+                let _ = owner.update(cx, |this, cx| {
+                    if this.terminal_visible()
+                        && this
+                            .active()
+                            .and_then(|slot| slot.terminal.as_ref())
+                            .is_some_and(|dock| dock.panel == panel)
+                        && panel.read(cx).needs_initial_reveal()
+                    {
+                        panel.update(cx, |panel, cx| panel.reveal(window, cx));
+                    }
+                });
+            });
         }
         let cwd = self.terminal_cwd(cx);
         let Some(dock) = self.active_mut().and_then(|slot| slot.terminal.as_mut()) else {
