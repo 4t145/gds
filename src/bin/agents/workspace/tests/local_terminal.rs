@@ -21,7 +21,8 @@ fn remote_terminal_toggle_expands_without_spawning_or_falling_back(cx: &mut Test
 
 #[cfg(unix)]
 #[gpui_kit::test]
-fn render_sync_defers_startup_and_hiding_cancels_it(cx: &mut TestAppContext) {
+async fn render_sync_defers_startup_and_hiding_cancels_it(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
     let fixture = fixture(cx);
     let panel = cx
         .update_window(fixture.window.into(), |_, window, cx| {
@@ -46,21 +47,51 @@ fn render_sync_defers_startup_and_hiding_cancels_it(cx: &mut TestAppContext) {
         assert!(
             !panel.read(cx).has_sessions(),
             "hidden before deferred startup"
-        )
+        );
+        assert!(panel.read(cx).needs_initial_reveal());
     });
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        fixture.view.update(cx, |view, cx| {
+            view.set_presented(true, window, cx);
+            view.terminals.visible = true;
+            view.sync_terminal_panel(window, cx);
+            assert!(
+                !panel.read(cx).has_sessions(),
+                "retry still defers process startup"
+            );
+        });
+    })
+    .expect("return to canceled owner");
+    cx.run_until_parked();
+    let shutdown = cx.update(|cx| {
+        panel.update(cx, |panel, cx| {
+            assert!(
+                panel.has_sessions(),
+                "returning retries canceled initial reveal"
+            );
+            assert!(!panel.needs_initial_reveal());
+            panel.shutdown(cx)
+        })
+    });
+    shutdown.await;
 }
 
 #[cfg(unix)]
 #[gpui_kit::test]
 async fn panels_start_on_reveal_and_survive_hiding_and_directory_switches(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("terminal owner directories");
+    let first_cwd = directory.path().join("first");
+    let second_cwd = directory.path().join("second");
+    std::fs::create_dir(&first_cwd).expect("first cwd");
+    std::fs::create_dir(&second_cwd).expect("second cwd");
     let fixture = fixture(cx);
     let shutdowns = cx
         .update_window(fixture.window.into(), |_, window, cx| {
             fixture.view.update(cx, |view, cx| {
                 view.backend.server =
                     bas::service::Target::Unix("/tmp/terminal-test.sock".into()).into();
-                view.navigation.selected_directory = Some("/tmp/first".into());
+                view.navigation.selected_directory = Some(first_cwd.clone());
                 view.toggle_terminal(window, cx);
                 let first = view.terminal_panel().expect("explicit local cwd panel");
                 assert!(first.read(cx).has_sessions());
@@ -73,11 +104,11 @@ async fn panels_start_on_reveal_and_survive_hiding_and_directory_switches(cx: &m
                     first.entity_id()
                 );
                 view.set_presented(true, window, cx);
-                view.navigation.selected_directory = Some("/tmp/second".into());
+                view.navigation.selected_directory = Some(second_cwd.clone());
                 view.toggle_terminal(window, cx);
                 let second = view.terminal_panel().expect("second cwd panel");
                 assert_ne!(first.entity_id(), second.entity_id());
-                view.navigation.selected_directory = Some("/tmp/first".into());
+                view.navigation.selected_directory = Some(first_cwd.clone());
                 assert_eq!(
                     view.terminal_panel().expect("original").entity_id(),
                     first.entity_id()
@@ -179,7 +210,6 @@ async fn close_without_confirmation_reaps_hidden_starting_terminal(cx: &mut Test
                 view.navigation.selected_directory = Some(std::env::temp_dir());
                 view.toggle_terminal(window, cx);
                 let panel = view.terminal_panel().expect("local panel");
-                panel.update(cx, |panel, cx| panel.open(std::env::temp_dir(), window, cx));
                 view.toggle_terminal(window, cx);
                 assert!(view.has_running_terminals(cx), "starting counts as running");
                 panel
