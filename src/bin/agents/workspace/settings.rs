@@ -27,6 +27,14 @@ impl Workspace {
     }
 
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_page(false, window, cx);
+    }
+
+    pub(super) fn open_terminal_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_page(true, window, cx);
+    }
+
+    fn open_settings_page(&mut self, terminal: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.close_reply_preview(window, cx);
         self.close_menu(window, cx);
         self.record_settings_target(cx);
@@ -36,7 +44,12 @@ impl Workspace {
             if !crate::connections::target_page(parent, cx) {
                 return;
             }
-            if let Err(error) = crate::settings::window::open(cx) {
+            let result = if terminal {
+                crate::settings::window::open_terminal(cx)
+            } else {
+                crate::settings::window::open(cx)
+            };
+            if let Err(error) = result {
                 let _ = owner.update(cx, |this, cx| {
                     this.selected.error = Some(crate::i18n::tr!(
                         "settings-open-error",

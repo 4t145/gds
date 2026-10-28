@@ -225,11 +225,16 @@ impl View {
         } else {
             (current + 1) % count
         };
-        if Page::ALL[next] == self.page {
+        self.select_page(Page::ALL[next], window, cx);
+    }
+
+    /// Open a specific settings page without changing the underlying workspace.
+    pub fn select_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        if window.has_active_dialog(cx) {
             return;
         }
-        self.page = Page::ALL[next];
-        self.page_focus[next].focus(window, cx);
+        self.page = page;
+        self.page_focus[page.index()].focus(window, cx);
         cx.notify();
     }
 
