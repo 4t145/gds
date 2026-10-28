@@ -119,5 +119,5 @@ Nix 包和开发环境提供 `xterm-256color` 的 terminfo，并保留用户的 
 ## 第二轮焦点与布局验证边界
 
 - Tab 回归先在旧路由上复现“终端失去焦点”，再通过终端专用路由例外修复。GPUI 测试窗口实际分发 Tab / Shift+Tab 到真实 PTY，断言收到 `09` / `1b5b5a`，焦点仍在输入区；外部控件的正向／反向焦点遍历继续有效。另用交互式、启用 readline 的 Bash 验证部分文件名经 Tab 补全后能读取目标内容，不只是单测按键编码函数。
-- 布局代码使用宿主公共间距：Files 终端 section 与 Tabs / Locations 均为侧栏外层 10px 加标签内层 6px；终端窗口标题与网格使用内容行公共 12px 基准。中文／英文新建入口同为“新建终端 / New terminal”。
+- 布局代码使用宿主公共间距：Files 终端 section 与 Tabs / Locations 均为侧栏外层 10px 加标签内层 6px；Agents 所属 workspace 下的终端 section 与主侧栏 section 同样复用这两层间距。两应用终端窗口标题与网格使用内容行公共 12px 基准，分栏线是覆盖层，不额外占用内容宽度。中文／英文新建入口同为“新建终端 / New terminal”。
 - **本轮 Tab 补全和边线对齐未做真实原生 GUI / Wayland 实机验证。** 执行环境未提供 `DISPLAY` / `WAYLAND_DISPLAY`。上述焦点测试是 headless GPUI 测试窗口加真实子进程，不是屏幕录制、像素验收或用户桌面实机通过；历史原生截图也不能代替本轮改动的验收。
