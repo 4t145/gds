@@ -37,8 +37,20 @@ async fn agents_selection_and_new_target_do_not_retarget_existing_terminals(
     let shutdown = window
         .update(cx, |_, window, cx| {
             panel.update(cx, |panel, cx| {
+                panel.reveal(window, cx);
+                assert!(
+                    panel.entries.is_empty(),
+                    "unknown cwd cannot launch a shell"
+                );
                 panel.set_cwd(Some(first_cwd.clone()), cx);
-                panel.new_terminal(&NewTerminal, window, cx);
+                panel.reveal(window, cx);
+                panel.reveal(window, cx);
+                assert_eq!(
+                    panel.entries.len(),
+                    1,
+                    "reopening does not duplicate startup"
+                );
+                assert!(panel.contains_focus(window, cx));
                 let first = panel.entries[0].terminal.clone();
                 assert_eq!(first.read(cx).cwd(), first_cwd.as_path());
                 panel.set_cwd(Some(second_cwd.clone()), cx);

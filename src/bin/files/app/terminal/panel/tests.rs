@@ -1,6 +1,54 @@
 use super::Panel;
-use gpui_kit::{AppContext, TestAppContext};
+use gpui_kit::{AppContext, TestAppContext, component::Root, px, size};
 use std::task::{Context as TaskContext, Poll, Waker};
+
+#[gpui_kit::test]
+async fn revealing_an_empty_local_panel_starts_once_and_focuses_it(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("terminal test directory");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        gds::i18n::install(gds::i18n::Language::English, cx).expect("terminal translations");
+    });
+    let panel = cx.update(|cx| cx.new(Panel::new));
+    let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
+        Root::new(panel.clone(), window, cx)
+    });
+    let shutdown = window
+        .update(cx, |_, window, cx| {
+            panel.update(cx, |panel, cx| {
+                panel.reveal(window, cx);
+                assert!(
+                    panel.entries.is_empty(),
+                    "unknown cwd never falls back to Home"
+                );
+                panel.set_cwd(Some(directory.path().to_path_buf()), cx);
+                panel.set_preferences(
+                    gds::terminal::Preferences {
+                        shell: Some(directory.path().join("missing-test-shell")),
+                        ..Default::default()
+                    },
+                    cx,
+                );
+                panel.reveal(window, cx);
+                let terminal = panel.entries[0].terminal.clone();
+                assert!(panel.contains_focus(window, cx));
+                panel.reveal(window, cx);
+                assert_eq!(panel.entries.len(), 1);
+                assert_eq!(panel.entries[0].terminal, terminal);
+                panel.set_cwd(None, cx);
+                panel.reveal(window, cx);
+                assert_eq!(
+                    panel.entries.len(),
+                    1,
+                    "unavailable target preserves existing instance"
+                );
+                panel.shutdown(cx)
+            })
+        })
+        .expect("reveal local panel");
+    shutdown.await;
+}
 
 #[gpui_kit::test]
 fn independent_empty_collections_do_not_spawn_when_targets_or_preferences_change(

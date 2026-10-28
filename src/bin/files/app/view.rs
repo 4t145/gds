@@ -40,7 +40,7 @@ impl Render for Browser {
         // and must still hide the close controls.
         self.held_modifier = Self::current_held_modifier(window);
         self.drain_device_removals(cx);
-        self.sync_terminal_cwd(cx);
+        self.sync_terminal_cwd(window, cx);
         if self.settings_open
             || self.collection.is_some()
             || self.menu_open
