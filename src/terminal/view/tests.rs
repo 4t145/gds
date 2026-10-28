@@ -94,3 +94,57 @@ fn single_terminal_respects_its_hosts_key_map(cx: &mut TestAppContext) {
     .expect("terminal key dispatch");
     session.terminate();
 }
+
+#[gpui_kit::test]
+fn changing_terminal_typography_updates_existing_grid_metrics(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::i18n::install(crate::i18n::Language::English, cx).expect("test messages");
+    });
+    let session = Session::spawn(SpawnOptions {
+        cwd: std::env::temp_dir(),
+        args: vec!["-c".into(), "exit 0".into()],
+        ..SpawnOptions::default()
+    })
+    .expect("local shell for typography test");
+    let mut terminal = None;
+    let window = cx.open_window(size(px(800.), px(480.)), |window, cx| {
+        let view = cx.new(|cx| View::new(session.clone(), Preferences::default(), window, cx));
+        terminal = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let terminal = terminal.expect("terminal view");
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let before = terminal.read(cx).geometry;
+        let preferences = Preferences {
+            font_family: ".SystemMonospace".into(),
+            font_size: 24.,
+            ..Preferences::default()
+        };
+        terminal.update(cx, |view, cx| view.set_preferences(preferences.clone(), cx));
+        window.render_frame(cx);
+        let view = terminal.read(cx);
+        let after = view.geometry;
+        assert!(after.cell.width > before.cell.width);
+        assert!(after.cell.height > before.cell.height);
+        assert!(
+            after.bounds.size.width / after.cell.width
+                < before.bounds.size.width / before.cell.width,
+            "larger text must reduce grid columns"
+        );
+        assert!(
+            after.bounds.size.height / after.cell.height
+                < before.bounds.size.height / before.cell.height,
+            "larger text must reduce grid rows"
+        );
+        assert!(view.fonts.as_ref().expect("resolved font").matches(
+            &preferences.font_family,
+            preferences.font_size,
+            f32::from(window.scale_factor()),
+        ));
+        assert_eq!(view.preferences, preferences);
+    })
+    .expect("terminal typography update");
+    session.terminate();
+}
