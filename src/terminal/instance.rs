@@ -159,6 +159,27 @@ impl Terminal {
         self.status(cx).is_running()
     }
 
+    /// Submit an explicit folder switch to this existing instance, without
+    /// restarting it or interrupting a foreground program. Call only at a prompt.
+    ///
+    /// # Errors
+    /// Fails for unavailable paths, a non-ready/busy session or unsupported shell.
+    pub fn change_directory(
+        &self,
+        cwd: PathBuf,
+        cx: &App,
+    ) -> impl Future<Output = anyhow::Result<()>> + Send + 'static + use<> {
+        let session = match &self.state {
+            State::Ready { view, .. } if !self.closing => Some(view.read(cx).session.clone()),
+            _ => None,
+        };
+        async move {
+            let session = session.ok_or(super::session::Error::ShellBusy)?;
+            session.change_directory(&cwd).await?;
+            Ok(())
+        }
+    }
+
     /// The process-supplied title. Hosts choose their own fallback and tab caption.
     pub fn title(&self, cx: &App) -> Option<SharedString> {
         match &self.state {

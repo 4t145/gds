@@ -94,6 +94,12 @@ pub enum Error {
     InputQueueFull,
     #[error("The terminal has stopped")]
     Closed,
+    #[error(
+        "Switch folders only at the shell prompt; the terminal is busy or its foreground shell cannot be verified"
+    )]
+    ShellBusy,
+    #[error("This shell does not support the switch-folder command")]
+    UnsupportedDirectoryCommand,
     #[cfg(not(unix))]
     #[error("The local PTY backend is not supported on this platform")]
     UnsupportedPlatform,
@@ -170,8 +176,14 @@ pub(crate) struct ColorQuery {
     pub format: Arc<dyn Fn(Rgb) -> String + Send + Sync>,
 }
 
+pub(crate) struct DirectoryChange {
+    pub command: Vec<u8>,
+    pub result: Sender<Result<(), Error>>,
+}
+
 #[derive(Default)]
 pub(crate) struct Control {
+    pub directory_change: Option<DirectoryChange>,
     pub input: VecDeque<Vec<u8>>,
     pub responses: VecDeque<Vec<u8>>,
     pub color_queries: VecDeque<ColorQuery>,
@@ -557,6 +569,34 @@ impl Session {
         drop(control);
         state.wake();
         Ok(())
+    }
+
+    /// Explicitly submit a quoted cd command, only while the original shell is
+    /// foreground. Never sends interrupt or line-clearing sequences.
+    ///
+    /// # Errors
+    /// Rejects invalid/unrepresentable paths, unsupported shells, busy input,
+    /// foreground jobs, or a stopped terminal. Success means command submitted,
+    /// not confirmation that the shell executed cd successfully.
+    pub async fn change_directory(&self, path: &std::path::Path) -> Result<(), Error> {
+        let command = super::directory::command(path)?;
+        let (result, received) = async_channel::bounded(1);
+        let state = &self.0.shared.state;
+        {
+            let mut control = lock(&state.control);
+            if state.shutdown.load(Ordering::Acquire) {
+                return Err(Error::Closed);
+            }
+            if control.directory_change.is_some() || control.input_bytes != 0 {
+                return Err(Error::ShellBusy);
+            }
+            if command.len() > MAX_INPUT_BYTES {
+                return Err(Error::InputQueueFull);
+            }
+            control.directory_change = Some(DirectoryChange { command, result });
+        }
+        state.wake();
+        received.recv().await.unwrap_or(Err(Error::Closed))
     }
 
     /// Queue a coalesced emulator/kernel resize, with cell pixels for queries.

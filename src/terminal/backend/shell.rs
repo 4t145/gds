@@ -19,6 +19,7 @@ use nix::{
 
 pub(super) struct Command {
     builder: ProcessCommand,
+    pub(super) directory_commands: bool,
     // Keep validation and the child's chdir on the same directory inode.
     _directory: OwnedFd,
 }
@@ -61,6 +62,7 @@ impl Command {
         builder.args(&options.args);
         Ok(Self {
             builder,
+            directory_commands: super::super::directory::supported_shell(&shell),
             _directory: directory,
         })
     }

@@ -215,6 +215,27 @@ impl Browser {
         cx.notify();
     }
 
+    fn switch_terminal_directory(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings_open || self.collection.is_some() || window.has_active_dialog(cx) {
+            return;
+        }
+        let Some(cwd) = self.terminal_cwd(cx) else {
+            notifications::info(i18n::text("files-terminal-cwd-unavailable", cx), cx);
+            return;
+        };
+        // Do not ensure/reveal here: this operation only targets an existing selection.
+        let Some(dock) = self.active().and_then(|slot| slot.terminal.as_ref()) else {
+            return;
+        };
+        dock.panel
+            .update(cx, |panel, cx| panel.change_directory(cwd, window, cx));
+    }
+
     fn maximize_terminal(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(dock) = self.active().and_then(|slot| slot.terminal.as_ref()) else {
             return;
@@ -306,6 +327,17 @@ impl Browser {
                             settings.select_page(settings::Page::Terminal, window, cx);
                         });
                     })),
+            )
+            .child(
+                ui::IconButton::new("files-terminal-switch-directory")
+                    .icon(IconName::FolderInput)
+                    .label(i18n::text("files-terminal-switch-directory", cx))
+                    .disabled(
+                        self.collection.is_some()
+                            || self.terminal_cwd(cx).is_none()
+                            || !panel.read(cx).can_change_directory(cx),
+                    )
+                    .on_click(cx.listener(Self::switch_terminal_directory)),
             )
             .child(maximize)
             .child(hide);

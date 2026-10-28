@@ -1,5 +1,6 @@
 //! A reusable single-terminal process and surface, independent of host layout or key maps.
 mod backend;
+mod directory;
 mod input;
 mod instance;
 mod preferences;
