@@ -37,7 +37,8 @@ pub use shortcut::{
 
 pub use crate::design::{
     COLLAPSED_SIDEBAR_WIDTH, FOOTER_HEIGHT, ICON_BUTTON_SIZE, SIDEBAR_ICON_SIZE,
-    SIDEBAR_ITEM_HEIGHT, SIDEBAR_PADDING, SIDEBAR_WIDTH, TOOLBAR_HEIGHT,
+    SIDEBAR_ITEM_HEIGHT, SIDEBAR_PADDING, SIDEBAR_SECTION_PADDING, SIDEBAR_WIDTH,
+    TERMINAL_CONTENT_INSET, TOOLBAR_HEIGHT,
 };
 pub const SMALL: Rems = Rems(crate::design::UI_TEXT_SCALE);
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(400);
@@ -49,7 +50,7 @@ const KEY_PADDING: f32 = 6.0;
 /// Matches the previous `text_xs` (0.75rem at the default 16px base).
 const KEY_TEXT_SIZE: f32 = 12.0;
 const HINT_GAP: f32 = 16.0;
-const MENU_PADDING: f32 = 12.0;
+const MENU_PADDING: f32 = crate::design::CONTENT_PADDING;
 const STATUS_PADDING: f32 = 18.0;
 const DIVIDER_WIDTH: f32 = 1.0;
 /// Smallest toolbar stretch still worth offering as a window move handle. A
@@ -70,7 +71,7 @@ impl DataListStyle {
     pub const NAME_SIZE: f32 = 13.0;
     pub const META_SIZE: f32 = 12.0;
     pub const HEADER_SIZE: f32 = 11.0;
-    pub const CELL_PADDING_X: f32 = 12.0;
+    pub const CELL_PADDING_X: f32 = crate::design::CONTENT_PADDING;
     pub const CELL_PADDING_Y: f32 = 4.0;
     pub const SCROLLBAR_LANE: f32 = 16.0;
 }

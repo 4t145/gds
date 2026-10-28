@@ -11,6 +11,12 @@ pub const FOOTER_HEIGHT: f32 = 36.0;
 pub const SIDEBAR_WIDTH: f32 = 222.0;
 pub const COLLAPSED_SIDEBAR_WIDTH: f32 = 58.0;
 pub const SIDEBAR_PADDING: f32 = 10.0;
+/// Section labels sit inside the sidebar's padded row, aligned across sections.
+pub const SIDEBAR_SECTION_PADDING: f32 = 6.0;
+/// Standard horizontal inset for content rows and their headers.
+pub const CONTENT_PADDING: f32 = 12.0;
+/// Terminal window titles and the PTY grid share the host content-row edge.
+pub const TERMINAL_CONTENT_INSET: f32 = CONTENT_PADDING;
 pub const SIDEBAR_ITEM_HEIGHT: f32 = 38.0;
 pub const ICON_BUTTON_SIZE: f32 = 32.0;
 

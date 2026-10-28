@@ -26,7 +26,7 @@ impl Workspace {
                         id: "sidebar-view-title";
                         test_support;
                         flex_1;
-                        pl_2;
+                        pl: gds::ui::SIDEBAR_SECTION_PADDING.px;
                     },
                     ..actions,
                 ]

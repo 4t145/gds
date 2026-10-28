@@ -83,7 +83,7 @@ impl Browser {
             .div { flex; flex_col; size_full; min_h_0; px: ui::SIDEBAR_PADDING.px; pt: GROUP_GAP.px } [
                 .div { flex; items_center; flex_shrink_0; h: HEADER_HEIGHT.px } [
                     @if (!self.sidebar_collapsed)
-                        ($i18n::text("tabs", cx), cx).ui::sidebar_section_title { flex_1; px: GROUP_GAP.px },
+                        ($i18n::text("tabs", cx), cx).ui::sidebar_section_title { flex_1; px: ui::SIDEBAR_SECTION_PADDING.px },
                     @end,
                     "new-tab".ui::IconButton::new { icon: IconName::Plus; label: $i18n::text("new-tab", cx);
                         command: Command::NewTab; on_click: on_new_tab;
@@ -123,7 +123,7 @@ impl Browser {
             } [
                 @if (!self.sidebar_collapsed)
                     ($i18n::text("locations", cx), cx).ui::sidebar_section_title {
-                        flex; items_center; flex_shrink_0; h: LOCATION_HEADER_HEIGHT.px; px: GROUP_GAP.px;
+                        flex; items_center; flex_shrink_0; h: LOCATION_HEADER_HEIGHT.px; px: ui::SIDEBAR_SECTION_PADDING.px;
                     },
                 @end,
                 ..locations,
