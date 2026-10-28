@@ -1,4 +1,6 @@
 files-terminal-new = 新建终端
+files-terminal-switch-directory = 切换到当前文件夹（仅空白 shell 提示符）
+files-terminal-switch-failed = 无法切换目录。请在空白 shell 提示符处使用此操作。
 files-terminal-end = 结束会话
 files-terminal-end-title = 结束此终端会话？
 files-terminal-end-message = 此 shell 及其运行中的作业将被停止，且无法撤销。

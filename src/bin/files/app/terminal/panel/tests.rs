@@ -133,3 +133,96 @@ async fn close_starting_terminal_skips_dialog_and_preserves_shutdown_barrier(
     cx.run_until_parked();
     cx.update(|cx| assert!(!terminal.read(cx).is_running(cx)));
 }
+
+#[cfg(unix)]
+#[gpui_kit::test]
+async fn folder_switch_targets_only_selected_instance_and_never_creates_one(
+    cx: &mut TestAppContext,
+) {
+    use std::{
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
+    cx.executor().allow_parking();
+    let parent = tempfile::tempdir().expect("panel cwd");
+    let target = parent.path().join("选中 folder ' $HOME");
+    std::fs::create_dir(&target).expect("target directory");
+    let shell = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|path| path.join("sh"))
+        .chain([PathBuf::from("/bin/sh")])
+        .find(|path| path.is_absolute() && path.is_file())
+        .expect("POSIX shell");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::i18n::install(gds::i18n::Language::English, cx).expect("test messages");
+    });
+    let panel = cx.update(|cx| cx.new(Panel::new));
+    let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
+        Root::new(panel.clone(), window, cx)
+    });
+    cx.update_window(window.into(), |_, window, cx| panel.update(cx, |panel, cx| {
+        panel.change_directory(target.clone(), window, cx);
+        assert!(panel.entries.is_empty(), "no selection must not create a terminal");
+        panel.preferences.shell = Some(shell);
+        panel.preferences.shell_args = vec!["-c".into(),
+            r#"stty -echo; printf '\033]2;%s\007' "$PWD"; while IFS= read -r line; do eval "$line"; printf '\033]2;%s\007' "$PWD"; done"#.into()];
+        panel.open(parent.path().to_owned(), window, cx);
+        panel.open(parent.path().to_owned(), window, cx);
+    })).expect("open two terminals");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        cx.run_until_parked();
+        if cx.update(|cx| {
+            panel
+                .read(cx)
+                .entries
+                .iter()
+                .all(|entry| entry.terminal.read(cx).title(cx).is_some())
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "shell startup");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let originals = cx.update(|cx| {
+        panel
+            .read(cx)
+            .entries
+            .iter()
+            .map(|entry| entry.terminal.clone())
+            .collect::<Vec<_>>()
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        panel.update(cx, |panel, cx| {
+            panel.change_directory(target.clone(), window, cx);
+        })
+    })
+    .expect("switch selected terminal cwd");
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        cx.run_until_parked();
+        if cx.update(|cx| {
+            originals[1]
+                .read(cx)
+                .title(cx)
+                .is_some_and(|title| title.as_ref() == target.to_str().expect("UTF-8 path"))
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "selected shell cd");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let shutdown = cx.update(|cx| {
+        panel.update(cx, |panel, cx| {
+            assert_eq!(panel.entries.len(), 2);
+            assert_eq!(panel.entries[0].terminal, originals[0]);
+            assert_eq!(panel.entries[1].terminal, originals[1]);
+            assert_eq!(
+                originals[0].read(cx).title(cx).as_deref(),
+                parent.path().to_str()
+            );
+            panel.shutdown(cx)
+        })
+    });
+    shutdown.await;
+}
