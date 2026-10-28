@@ -268,8 +268,7 @@ impl Browser {
             .items_center()
             .h_full()
             .min_w_0()
-            .px_2()
-            .text_xs()
+            .px(px(ui::SIDEBAR_PADDING))
             .text_color(cx.theme().muted_foreground)
             .when(self.sidebar_collapsed, |this| {
                 let title = title.clone();
@@ -278,7 +277,7 @@ impl Browser {
                     .tooltip(move |window, cx| ui::tooltip::view(title.clone(), window, cx))
             })
             .when(!self.sidebar_collapsed, |this| {
-                this.child(div().min_w_0().truncate().child(title))
+                this.child(ui::sidebar_section_title(title, cx).px(px(ui::SIDEBAR_SECTION_PADDING)))
             });
         let active_title = panel.read(cx).active_title(cx);
         let controls = div()
@@ -286,7 +285,7 @@ impl Browser {
             .items_center()
             .h_full()
             .min_w_0()
-            .px_3()
+            .px(px(ui::TERMINAL_CONTENT_INSET))
             .gap_2()
             .child(
                 div()
@@ -295,17 +294,6 @@ impl Browser {
                     .truncate()
                     .text_sm()
                     .child(active_title),
-            )
-            .child(
-                ui::IconButton::new("files-terminal-settings")
-                    .icon(IconName::Settings)
-                    .label(i18n::text("settings-terminal", cx))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.dispatch(Command::Settings, window, cx);
-                        this.settings_view.update(cx, |settings, cx| {
-                            settings.select_page(settings::Page::Terminal, window, cx);
-                        });
-                    })),
             )
             .child(maximize)
             .child(hide);
