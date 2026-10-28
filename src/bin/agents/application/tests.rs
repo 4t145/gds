@@ -27,31 +27,16 @@ fn about_renders_explicit_version_and_build_tag(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn quit_can_be_cancelled_and_reopened_without_a_workspace(cx: &mut TestAppContext) {
+fn quit_is_immediate_idempotent_and_opens_no_confirmation(cx: &mut TestAppContext) {
     init(cx);
-    let about = cx.update(|cx| open_about(cx).expect("independent about"));
-    let quit = cx.update(|cx| open_quit(cx).expect("confirmation"));
-    let again = cx.update(|cx| open_quit(cx).expect("existing confirmation"));
-    assert_eq!(quit.window_id(), again.window_id());
-    cx.update_window(quit.into(), |_, window, cx| {
-        window.render_frame(cx);
-        window.click("quit-cancel", cx);
-    })
-    .expect("cancel");
-    assert!(cx.update_window(quit.into(), |_, _, _| ()).is_err());
-    cx.update_window(about.into(), |_, window, cx| {
-        window.render_frame(cx);
-        assert!(window.find("about-window").visible());
-    })
-    .expect("cancel leaves other windows open");
-    let quit = cx.update(|cx| open_quit(cx).expect("new confirmation"));
-    cx.update_window(quit.into(), |_, window, cx| {
-        window.render_frame(cx);
-        // TestPlatform::quit is deliberately a no-op; exercise the real button
-        // without relying on it terminating the test runner.
-        window.click("quit-confirm", cx);
-    })
-    .expect("confirm is usable without a workspace or Connection");
+    cx.update(|cx| {
+        // TestPlatform::quit is a no-op, so inspect the request without exiting.
+        request_quit(cx);
+        assert!(cx.has_global::<QuitPending>());
+        assert!(cx.windows().is_empty());
+        request_quit(cx);
+        assert!(cx.windows().is_empty());
+    });
 }
 
 fn request() -> Confirmation {
@@ -88,10 +73,10 @@ fn notices_do_not_replace_confirmations_or_open_windows(cx: &mut TestAppContext)
         .expect("focus pending confirmation")
     });
     assert_eq!(confirmation.window_id(), again.window_id());
-    let quit = cx.update(|cx| open_quit(cx).expect("separate quit"));
+    let about = cx.update(|cx| open_about(cx).expect("separate about"));
     cx.update(|cx| {
         crate::diagnostics::notify(
-            Some(quit.into()),
+            Some(about.into()),
             crate::diagnostics::log::Level::Error,
             "归档失败",
             "请稍后重试",
@@ -112,17 +97,15 @@ fn notices_do_not_replace_confirmations_or_open_windows(cx: &mut TestAppContext)
     .expect("confirm original request");
     assert_eq!(calls.get(), 1);
     assert!(cx.update_window(confirmation.into(), |_, _, _| ()).is_err());
-    cx.update_window(quit.into(), |_, window, cx| {
+    cx.update_window(about.into(), |_, window, cx| {
         window.render_frame(cx);
-        assert!(window.find("quit-window").visible());
+        assert!(window.find("about-window").visible());
     })
-    .expect("unrelated quit is intact");
+    .expect("unrelated about is intact");
 }
 
 #[gpui_kit::test]
-fn confirm_quit_flushes_valid_settings_before_debounce_without_a_workspace(
-    cx: &mut TestAppContext,
-) {
+fn quit_flushes_valid_settings_before_debounce_without_a_workspace(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().expect("temporary appearance");
     let path = directory.path().join("settings.json");
     std::fs::write(&path, r#"{"appearance":{"theme_source":"builtin"}}"#).expect("test config");
@@ -140,12 +123,7 @@ fn confirm_quit_flushes_valid_settings_before_debounce_without_a_workspace(
         window.input("Fixture Sans", cx);
     })
     .expect("edit before debounce");
-    let quit = cx.update(|cx| open_quit(cx).expect("quit"));
-    cx.update_window(quit.into(), |_, window, cx| {
-        window.render_frame(cx);
-        window.click("quit-confirm", cx);
-    })
-    .expect("flush then quit");
+    cx.update(request_quit);
     let saved: crate::configuration::store::Settings =
         serde_json::from_slice(&std::fs::read(&path).expect("saved settings"))
             .expect("preferences");

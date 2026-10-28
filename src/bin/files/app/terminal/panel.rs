@@ -38,7 +38,6 @@ pub(in crate::app) struct Panel {
     cwd: Option<PathBuf>,
     preferences: terminal::Preferences,
     sidebar_width: f32,
-    confirming: Option<u64>,
     sealed: bool,
 }
 
@@ -52,7 +51,6 @@ impl Panel {
             cwd: None,
             preferences: terminal::Preferences::default(),
             sidebar_width: ui::SIDEBAR_WIDTH,
-            confirming: None,
             sealed: false,
         }
     }
@@ -158,7 +156,6 @@ impl Panel {
 
     pub fn shutdown(&mut self, cx: &mut Context<Self>) -> terminal::Shutdown {
         self.sealed = true;
-        self.confirming = None;
         let shutdowns: Vec<_> = self
             .entries
             .iter_mut()
@@ -235,60 +232,7 @@ impl Panel {
     }
 
     fn request_close(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
-        if self.sealed || self.confirming.is_some() || window.has_active_dialog(cx) {
-            return;
-        }
-        let Some(entry) = self
-            .entries
-            .iter()
-            .find(|entry| entry.id == id && !entry.closing)
-        else {
-            return;
-        };
-        if !entry.terminal.read(cx).is_running(cx) {
-            self.close_approved(id, window, cx);
-            return;
-        }
-        self.confirming = Some(id);
-        let owner = cx.entity().downgrade();
-        window.open_alert_dialog(cx, move |dialog, _, cx| {
-            let confirm = owner.clone();
-            let cancel = owner.clone();
-            let colors = gds::theme::Colors::current(cx);
-            let mut background = colors.panel;
-            background.a = 1.;
-            dialog
-                .confirm()
-                .bg(background)
-                .text_color(colors.panel_foreground)
-                .title(i18n::text("files-terminal-end-title", cx))
-                .description(i18n::text("files-terminal-end-message", cx))
-                .footer(
-                    ui::DialogActions::new(
-                        i18n::text("files-terminal-end", cx),
-                        IconName::X,
-                        i18n::text("operation-cancel", cx),
-                    )
-                    .danger(),
-                )
-                .on_ok(move |_, window, cx| {
-                    if let Err(error) =
-                        confirm.update(cx, |panel, cx| panel.close_approved(id, window, cx))
-                    {
-                        eprintln!("Files terminal close owner disappeared: {error}");
-                    }
-                    true
-                })
-                .on_close(move |_, _, cx| {
-                    if let Err(error) = cancel.update(cx, |panel, _| {
-                        if panel.confirming == Some(id) {
-                            panel.confirming = None;
-                        }
-                    }) {
-                        eprintln!("Files terminal dialog owner disappeared: {error}");
-                    }
-                })
-        });
+        self.close_approved(id, window, cx);
     }
 
     fn close_approved(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
@@ -306,7 +250,6 @@ impl Panel {
         let shutdown = entry
             .terminal
             .update(cx, |terminal, cx| terminal.shutdown(cx));
-        self.confirming = None;
         cx.spawn_in(window, async move |panel, cx| {
             shutdown.await;
             if let Err(error) =
