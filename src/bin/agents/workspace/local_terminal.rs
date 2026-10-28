@@ -87,12 +87,13 @@ struct WorkspaceTerminal {
     panel: Entity<Panel>,
     split: Entity<gds::ui::split::State>,
     _changes: Subscription,
+    _split_changes: Subscription,
 }
 
 pub(super) struct Terminals {
     workspaces: HashMap<Group, WorkspaceTerminal>,
     pub visible: bool,
-    unavailable_split: Entity<gds::ui::split::State>,
+    pub(super) unavailable_split: Entity<gds::ui::split::State>,
 }
 
 impl Terminals {
@@ -144,12 +145,14 @@ impl Workspace {
                 split.default_bottom(260.);
                 split
             });
+            let split_changes = cx.observe(&split, |_, _, cx| cx.notify());
             self.terminals.workspaces.insert(
                 group,
                 WorkspaceTerminal {
                     panel,
                     split,
                     _changes: changes,
+                    _split_changes: split_changes,
                 },
             );
         }

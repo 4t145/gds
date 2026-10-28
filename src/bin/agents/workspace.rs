@@ -390,7 +390,7 @@ impl Workspace {
         });
         let list = Self::timeline_list(cx);
         let terminals = local_terminal::Terminals::new(cx);
-        subscriptions.push(cx.observe(&terminals.split, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&terminals.unavailable_split, |_, _, cx| cx.notify()));
         Self {
             window: state::WindowState::new(window.window_handle(), compact),
             backend: state::BackendState::new(connection, server, agent_metadata, event_task),

@@ -34,6 +34,7 @@ pub(in crate::workspace) struct Panel {
     cwd: Option<PathBuf>,
     preferences: Preferences,
     tabs_focus: FocusHandle,
+    empty_focus: FocusHandle,
     closing: bool,
     retiring: Vec<Shared<Shutdown>>,
     shutdown: Option<Shared<Shutdown>>,
@@ -48,6 +49,7 @@ impl Panel {
             cwd: None,
             preferences: Preferences::default(),
             tabs_focus: cx.focus_handle(),
+            empty_focus: cx.focus_handle(),
             closing: false,
             retiring: Vec::new(),
             shutdown: None,
@@ -122,12 +124,13 @@ impl Panel {
         if let Some(terminal) = self.active_terminal() {
             terminal.update(cx, |terminal, cx| terminal.focus(window, cx));
         } else {
-            self.tabs_focus.focus(window, cx);
+            self.empty_focus.focus(window, cx);
         }
     }
 
     pub fn contains_focus(&self, window: &Window, cx: &App) -> bool {
         self.tabs_focus.contains_focused(window, cx)
+            || self.empty_focus.contains_focused(window, cx)
             || self
                 .entries
                 .iter()
@@ -276,7 +279,7 @@ impl Panel {
             .into()
     }
 
-    fn tab(&self, entry: &Entry, collapsed: bool, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+    fn tab(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let id = entry.id;
         let title = Self::title(entry, cx);
         let cwd = entry.terminal.read(cx).cwd().display().to_string();
@@ -302,14 +305,9 @@ impl Panel {
                 panel.request_close(id, window, cx);
             }));
         gds::ui::NavItem::new(("agents-terminal-tab", id), IconName::Terminal, title)
-            .compact(collapsed)
             .selected(selected)
             .tooltip_text(hint)
-            .trailing(if collapsed {
-                Vec::new()
-            } else {
-                vec![close.into_any_element()]
-            })
+            .trailing(vec![close.into_any_element()])
             .on_click(cx.listener(move |panel, _, window, cx| {
                 panel.active = Some(id);
                 panel.tabs_focus.focus(window, cx);
@@ -320,7 +318,6 @@ impl Panel {
 
     /// The workspace sidebar provides management; the dock only renders the PTY.
     pub fn render_tabs(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let collapsed = false;
         div()
             .id("agents-terminal-tabs")
             .test_support()
@@ -338,19 +335,13 @@ impl Panel {
             .on_action(cx.listener(Self::next_terminal))
             .on_action(cx.listener(Self::previous_terminal))
             .on_action(cx.listener(Self::focus_terminal))
-            .children(
-                self.entries
-                    .iter()
-                    .map(|entry| self.tab(entry, collapsed, cx)),
-            )
+            .children(self.entries.iter().map(|entry| self.tab(entry, cx)))
             .child(
                 Button::new("agents-terminal-new")
                     .ghost()
                     .h(px(gds::ui::ICON_BUTTON_SIZE))
                     .w_full()
-                    .when(!collapsed, |button| {
-                        button.label(crate::i18n::tr!("local-terminal-new"))
-                    })
+                    .label(crate::i18n::tr!("local-terminal-new"))
                     .control_icon(IconName::Plus)
                     .disabled(self.cwd.is_none() || self.closing)
                     .tooltip_with_shortcut(
@@ -371,6 +362,10 @@ impl Render for Panel {
             Some(terminal) => terminal.clone().into_any_element(),
             None => div()
                 .size_full()
+                .key_context(TABS_CONTEXT)
+                .track_focus(&self.empty_focus)
+                .on_action(cx.listener(Self::new_terminal))
+                .on_action(cx.listener(Self::focus_terminal))
                 .p_3()
                 .bg(gds::theme::content_background(cx))
                 .text_color(cx.theme().muted_foreground)
