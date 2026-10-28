@@ -1,6 +1,7 @@
 //! Local shells belong to a backend/work-directory pair, never to a conversation.
 
 use super::*;
+use gpui_kit::component::menu::PopupMenuItem;
 use std::path::Path;
 
 mod panel;
@@ -288,6 +289,51 @@ impl Workspace {
         )
     }
 
+    fn terminal_picker(&self, panel: Option<&Entity<Panel>>, cx: &mut Context<Self>) -> AnyElement {
+        let choices = panel
+            .map(|panel| panel.read(cx).choices(cx))
+            .unwrap_or_default();
+        let disabled = choices.is_empty();
+        let owner = cx.entity().downgrade();
+        let panel = panel.cloned();
+        let parent = self.window.handle;
+        self.menu_button(
+            layout::icon_button("choose-local-terminal", IconName::List)
+                .disabled(disabled)
+                .accessibility_label(crate::i18n::tr!("local-terminal-select"))
+                .tooltip(crate::i18n::tr!("local-terminal-select")),
+            choices.len(),
+            disabled,
+            move |mut menu, _, _| {
+                for (id, title, selected) in &choices {
+                    let id = *id;
+                    let owner = owner.clone();
+                    let panel = panel.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new(title.clone())
+                            .icon(IconName::Terminal)
+                            .checked(*selected)
+                            .on_click(move |_, window, cx| {
+                                menus::in_parent(parent, window, cx, |window, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        if let Some(panel) = &panel
+                                            && this.terminal_panel().as_ref() == Some(panel)
+                                        {
+                                            panel.update(cx, |panel, cx| {
+                                                panel.select(id, window, cx)
+                                            });
+                                        }
+                                    });
+                                });
+                            }),
+                    );
+                }
+                menu
+            },
+            cx,
+        )
+    }
+
     pub(super) fn render_terminal_dock(
         &self,
         content: AnyElement,
@@ -302,8 +348,13 @@ impl Workspace {
         let split = workspace
             .map(|workspace| workspace.split.clone())
             .unwrap_or_else(|| self.terminals.unavailable_split.clone());
-        let active_title = self
-            .terminal_panel()
+        let panel = workspace.map(|workspace| workspace.panel.clone());
+        let close_target = panel
+            .as_ref()
+            .and_then(|panel| panel.read(cx).active_id().map(|id| (panel.clone(), id)));
+        let picker = self.terminal_picker(panel.as_ref(), cx);
+        let active_title = panel
+            .as_ref()
             .map(|panel| panel.read(cx).active_title(cx))
             .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into());
         let controls = div()
@@ -320,6 +371,19 @@ impl Workspace {
                     .truncate()
                     .text_sm()
                     .child(active_title),
+            )
+            .child(picker)
+            .child(
+                layout::icon_button("close-local-terminal", IconName::X)
+                    .disabled(close_target.is_none())
+                    .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some((panel, id)) = &close_target
+                            && this.terminal_panel().as_ref() == Some(panel)
+                        {
+                            panel.update(cx, |panel, cx| panel.request_close(*id, window, cx));
+                        }
+                    })),
             )
             .child(
                 layout::icon_button("new-local-terminal", IconName::Plus)
