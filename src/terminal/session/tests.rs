@@ -328,6 +328,54 @@ fn application_quit_waits_for_workers_and_rejects_later_spawns() {
     futures_lite::future::block_on(super::shutdown_all());
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn explicit_directory_change_keeps_shell_and_rejects_foreground_jobs() {
+    let parent = tempfile::tempdir().expect("test directory");
+    let target = parent.path().join("新 folder ' $HOME");
+    std::fs::create_dir(&target).expect("target directory");
+    let session = Session::spawn(SpawnOptions {
+        cwd: parent.path().to_owned(),
+        shell: Some(shell()),
+        args: vec!["-i".into()],
+        columns: 180,
+        ..SpawnOptions::default()
+    })
+    .expect("interactive shell");
+    let pid = session.process_id();
+    session
+        .write(b"stty -echo; PS1=''; printf 'READY_%s\\n' switch\r")
+        .expect("prepare prompt");
+    wait_until(|| screen(&session).contains("READY_switch"));
+    futures_lite::future::block_on(session.change_directory(&target)).expect("submit cd at prompt");
+    session
+        .write(b"printf '\\033]2;%s\\007' \"$PWD\"\r")
+        .expect("inspect cwd through process title");
+    wait_until(|| session.title().as_deref() == target.to_str());
+    assert_eq!(session.title().as_deref(), target.to_str());
+    assert_eq!(
+        session.process_id(),
+        pid,
+        "cd must preserve the original instance"
+    );
+
+    session
+        .write(b"sh -c 'printf BUSY_%s\\n foreground; sleep 30'; printf JOB_FINISHED\r")
+        .expect("start foreground job");
+    wait_until(|| screen(&session).contains("BUSY_foreground"));
+    assert!(matches!(
+        futures_lite::future::block_on(session.change_directory(parent.path())),
+        Err(Error::ShellBusy)
+    ));
+    assert_eq!(session.status(), Status::Running);
+    assert!(
+        !screen(&session).contains("JOB_FINISHED"),
+        "folder switching must not interrupt jobs"
+    );
+    session.terminate();
+    futures_lite::future::block_on(session.wait_stopped());
+}
+
 #[test]
 fn notifications_are_bounded_and_input_backpressure_is_atomic() {
     let directory = tempfile::tempdir().expect("test directory");

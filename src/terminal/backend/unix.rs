@@ -64,6 +64,7 @@ pub(crate) struct Backend {
     writer: Box<dyn Write + Send>,
     child: Option<Box<dyn Child + Send + Sync>>,
     pid: Option<u32>,
+    directory_commands: bool,
     wake: UnixStream,
     fd: RawFd,
     reaped: bool,
@@ -103,6 +104,7 @@ impl Backend {
             .master
             .tty_name()
             .ok_or_else(|| anyhow::anyhow!("PTY has no Unix slave device path"))?;
+        let directory_commands = command.directory_commands;
         let child: Box<dyn Child + Send + Sync> =
             Box::new(command.spawn(&slave_path).map_err(anyhow::Error::from)?);
         let pid = child.process_id();
@@ -113,6 +115,7 @@ impl Backend {
             writer,
             child: Some(child),
             pid,
+            directory_commands,
             wake,
             fd,
             reaped: false,
@@ -148,6 +151,7 @@ impl Backend {
         parser.stop_sync(&mut *shared.term.lock());
         {
             let mut control = lock(&shared.state.control);
+            control.directory_change.take();
             control.input.clear();
             control.responses.clear();
             control.color_queries.clear();
@@ -193,6 +197,7 @@ impl Backend {
                 lock(&shared.state.metadata).size = size;
                 shared.state.notify();
             }
+            self.change_directory(shared, pending.is_some());
             self.write_input(shared, &mut pending)?;
             self.read_output(shared, parser, IO_BUDGET)?;
             if parser
@@ -309,6 +314,36 @@ impl Backend {
             let color = shared.term.lock().colors()[query.index]
                 .unwrap_or_else(|| lock(&shared.state.metadata).palette[query.index]);
             shared.state.respond((query.format)(color));
+        }
+    }
+
+    fn change_directory(&self, shared: &Shared, pending: bool) {
+        let mut control = lock(&shared.state.control);
+        let Some(request) = control.directory_change.take() else {
+            return;
+        };
+        let result = if !self.directory_commands {
+            Err(Error::UnsupportedDirectoryCommand)
+        } else if pending
+            || control.input_bytes != 0
+            || !self.pid.is_some_and(|pid| {
+                self.master
+                    .process_group_leader()
+                    .and_then(|group| u32::try_from(group).ok())
+                    == Some(pid)
+            })
+        {
+            Err(Error::ShellBusy)
+        } else {
+            control.input_bytes += request.command.len();
+            control.input.push_back(request.command);
+            Ok(())
+        };
+        // Only the caller receives this one-shot result; a dropped caller does
+        // not turn a rejected command into a terminal process failure.
+        match request.result.try_send(result) {
+            Ok(()) | Err(async_channel::TrySendError::Closed(_)) => {}
+            Err(async_channel::TrySendError::Full(_)) => unreachable!("one command result"),
         }
     }
 
