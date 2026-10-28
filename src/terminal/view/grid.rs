@@ -16,7 +16,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 // Share the host's content-row baseline; do not add an independent grid gutter.
-const INSET_X: f32 = crate::ui::DataListStyle::CELL_PADDING_X;
+const INSET_X: f32 = crate::design::TERMINAL_CONTENT_INSET;
 const INSET_Y: f32 = 4.;
 
 #[derive(Clone)]
