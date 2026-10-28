@@ -15,7 +15,8 @@ use gpui_kit::{prelude::*, *};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-const INSET_X: f32 = 8.;
+// Share the host's content-row baseline; do not add an independent grid gutter.
+const INSET_X: f32 = crate::ui::DataListStyle::CELL_PADDING_X;
 const INSET_Y: f32 = 4.;
 
 #[derive(Clone)]
