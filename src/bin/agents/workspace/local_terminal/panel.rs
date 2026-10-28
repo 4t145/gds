@@ -6,7 +6,7 @@ use gpui_kit::{
     App, AppContext, Context, Entity, FocusHandle, IntoElement, Render, SharedString, Subscription,
     TestSupportExt, Window,
     assets::IconName,
-    component::{ActiveTheme, Disableable, Icon, Selectable, WindowExt, button::ButtonVariants},
+    component::{ActiveTheme, Disableable, Selectable, WindowExt, button::ButtonVariants},
     div,
     prelude::*,
     px,
@@ -329,48 +329,30 @@ impl Panel {
         };
         let origin = crate::i18n::tr!("local-terminal-started-in", path = cwd);
         let hint = format!("{title} · {origin} · {status}");
-        let colors = gds::theme::Colors::current(cx);
         let selected = self.active == Some(id);
-        let row = div()
-            .id(("agents-terminal-tab", id))
-            .test_support()
-            .flex()
-            .items_center()
-            .min_w_0()
-            .h(px(gds::ui::SIDEBAR_ITEM_HEIGHT))
-            .rounded(px(6.))
-            .px_2()
-            .gap_1()
-            .text_color(colors.sidebar_foreground)
-            .hover(|row| row.bg(colors.hover()))
-            .when(selected, |row| {
-                row.bg(colors.selection)
-                    .text_color(colors.selection_foreground)
+        let close = Button::icon_button(("agents-terminal-close", id))
+            .control_icon(IconName::X)
+            .selected(selected)
+            .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
+            .on_click(cx.listener(move |panel, _, window, cx| {
+                cx.stop_propagation();
+                panel.request_close(id, window, cx);
+            }));
+        gds::ui::NavItem::new(("agents-terminal-tab", id), IconName::Terminal, title)
+            .compact(collapsed)
+            .selected(selected)
+            .tooltip_text(hint)
+            .trailing(if collapsed {
+                Vec::new()
+            } else {
+                vec![close.into_any_element()]
             })
-            .tooltip(move |window, cx| gds::ui::tooltip::view(hint.clone(), window, cx))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 panel.active = Some(id);
                 panel.tabs_focus.focus(window, cx);
                 cx.notify();
-            }));
-        if collapsed {
-            row.justify_center()
-                .child(Icon::new(IconName::Terminal).size(px(crate::ui::ICON)))
-                .into_any_element()
-        } else {
-            row.child(div().flex_1().min_w_0().truncate().child(title))
-                .child(
-                    Button::icon_button(("agents-terminal-close", id))
-                        .control_icon(IconName::X)
-                        .selected(selected)
-                        .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
-                        .on_click(cx.listener(move |panel, _, window, cx| {
-                            cx.stop_propagation();
-                            panel.request_close(id, window, cx);
-                        })),
-                )
-                .into_any_element()
-        }
+            }))
+            .into_any_element()
     }
 }
 

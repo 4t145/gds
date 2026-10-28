@@ -10,7 +10,7 @@ use gds::{
 };
 use gpui_kit::{
     assets::IconName,
-    component::{Disableable, Icon, Selectable, WindowExt, button::ButtonVariants},
+    component::{Disableable, Selectable, WindowExt, button::ButtonVariants},
     prelude::*,
     *,
 };
@@ -22,8 +22,6 @@ use crate::actions::{
 
 #[cfg(all(test, feature = "gui-tests"))]
 mod tests;
-
-const TAB_HEIGHT: f32 = ui::SIDEBAR_ITEM_HEIGHT;
 
 struct Entry {
     id: u64,
@@ -392,31 +390,16 @@ impl Render for Panel {
                 .disabled(self.sealed || entry.closing)
                 .on_click(close);
             tabs = tabs.child(
-                div()
-                    .id(("files-terminal-tab", id))
-                    .flex()
-                    .items_center()
-                    .min_w_0()
-                    .h(px(TAB_HEIGHT))
-                    .flex_shrink_0()
-                    .rounded(px(6.))
-                    .pl_2()
-                    .hover(|this| this.bg(colors.hover()))
-                    .when(self.active == Some(id), |this| {
-                        this.bg(colors.selection)
-                            .text_color(colors.selection_foreground)
+                ui::NavItem::new(("files-terminal-tab", id), IconName::Terminal, title)
+                    .compact(collapsed)
+                    .selected(self.active == Some(id))
+                    .tooltip_text(tooltip)
+                    .trailing(if collapsed {
+                        Vec::new()
+                    } else {
+                        vec![close_button.into_any_element()]
                     })
-                    .on_click(select)
-                    .tooltip(move |window, cx| ui::tooltip::view(tooltip.clone(), window, cx))
-                    .when(collapsed, |this| {
-                        this.justify_center()
-                            .pl_0()
-                            .child(Icon::new(IconName::Terminal).size(px(ui::SIDEBAR_ICON_SIZE)))
-                    })
-                    .when(!collapsed, |this| {
-                        this.child(div().flex_1().min_w_0().truncate().text_sm().child(title))
-                    })
-                    .when(!collapsed, |this| this.child(close_button)),
+                    .on_click(select),
             );
         }
         tabs = tabs.child(
