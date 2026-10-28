@@ -4,30 +4,35 @@ use std::{rc::Rc, time::Duration};
 
 use gds_uim::el;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::{ActiveTheme, Disableable, Icon, Selectable, Sizable};
+use gpui_kit::component::button::ButtonVariants;
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Selectable};
 use gpui_kit::{prelude::*, *};
 
+use self::button::Button;
 use crate::{actions::Command, theme, typography};
 
 pub mod button;
 pub mod capacity;
 pub mod dialog;
+pub mod field;
 pub mod keytips;
 pub mod list;
+pub mod menu;
 pub mod page;
 pub mod region;
 pub mod settings;
 mod shortcut;
 pub mod split;
+pub mod surface;
 pub mod tooltip;
 pub mod window;
 pub use dialog::DialogActions;
 pub use list::ListSurface;
 pub use page::ContentPage;
-use shortcut::Hint;
+use shortcut::ShortcutHint as Hint;
 pub use shortcut::{
-    HeldModifier, PrefixTarget, Shortcut, ShortcutBadge, command_tooltip, shortcut_tooltip,
+    HeldModifier, PrefixTarget, Shortcut, ShortcutBadge, ShortcutHint, command_tooltip,
+    shortcut_tooltip,
 };
 
 pub use crate::design::{
@@ -70,10 +75,23 @@ impl DataListStyle {
     pub const SCROLLBAR_LANE: f32 = 16.0;
 }
 
+/// Shared typography for sidebar section labels, following the rem base.
+pub fn sidebar_section_title(label: impl Into<SharedString>, cx: &App) -> Div {
+    el! {
+        .div {
+            min_w_0;
+            text_xs;
+            font_weight: FontWeight::NORMAL;
+            text_color: $(cx.theme().muted_foreground);
+            truncate;
+        } [$(label.into())]
+    }
+}
+
 #[derive(IntoElement)]
 pub struct IconButton {
     id: ElementId,
-    button: Button,
+    button: button::Button,
     label: SharedString,
     command: Option<Shortcut>,
     /// A binding outside the workspace command set; it wins when both are set.
@@ -84,7 +102,7 @@ pub struct IconButton {
 impl IconButton {
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
-        let button = el! { (~id).Button::new { ghost; small; size: ICON_BUTTON_SIZE.px } };
+        let button = button::Button::icon_button(id.clone());
         Self {
             id,
             button,
@@ -96,9 +114,7 @@ impl IconButton {
     }
 
     pub fn icon(mut self, icon: IconName) -> Self {
-        self.button = self
-            .button
-            .icon(Icon::new(icon).size(px(crate::design::ICON_SIZE)));
+        self.button = self.button.control_icon(icon);
         self
     }
 
@@ -293,6 +309,7 @@ impl RenderOnce for NavItem {
             el! { .div { size: ICON_BUTTON_SIZE.px; flex; items_center; justify_center } [control] }
         }).collect();
         let has_details = details.is_some();
+        let selected = button.is_selected();
         let content = el! {
             .div {
                 flex; flex_col; w_full; min_w_0;
@@ -310,6 +327,10 @@ impl RenderOnce for NavItem {
         let button = el! {
             button { w_full; p_0; rounded: ITEM_RADIUS.px;
                 @if (has_details) h_auto; @else h: SIDEBAR_ITEM_HEIGHT.px; @end;
+                text_color: $(cx.theme().sidebar_foreground);
+                @if (selected)
+                    bg: $(cx.theme().sidebar_accent); text_color: $(cx.theme().sidebar_accent_foreground);
+                @end;
             } [content]
         };
         let shortcut = shortcut.or(command);

@@ -159,7 +159,9 @@ impl Workspace {
                 px_2;
                 rounded: 6.0.px;
                 tooltip_show_delay: gds::ui::TOOLTIP_DELAY;
-                hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(crate::ui::time::recent_time(updated_at, now, cx), window, cx));
+                when: $(self.window.menu.is_none()), {
+                    hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(crate::ui::time::recent_time(updated_at, now, cx), window, cx));
+                };
                 bg: $(cx.theme().sidebar_accent);
                 text_color: $(cx.theme().sidebar_accent_foreground);
                 flex;

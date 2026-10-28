@@ -178,14 +178,14 @@ impl DragPreview {
 impl Render for DragPreview {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let icon = self.icon;
-        let color = cx.theme().foreground;
+        let color = cx.theme().popover_foreground;
         el! {
             .div { pl: $self.content_offset.x; pt: $self.content_offset.y; } [
                 .div {
                     px: PREVIEW_PADDING_X.px; py: PREVIEW_PADDING_Y.px; rounded: PREVIEW_RADIUS.px;
                     flex; items_center; gap: PREVIEW_ICON_GAP.px;
                     max_w: PREVIEW_MAX_WIDTH.px; overflow_hidden;
-                    bg: $cx.theme().secondary; border_1; border_color: $cx.theme().border;
+                    bg: $cx.theme().popover; border_1; border_color: $cx.theme().border;
                     text_color: $color; text_sm;
                 } [
                     $(icon.render(px(PREVIEW_ICON_SIZE), color)),
@@ -224,8 +224,8 @@ pub(super) fn drop_target(
     element
         .on_drop(in_app)
         .on_drop(external)
-        .drag_over::<FileDrag>(|style, _, _, cx| style.bg(cx.theme().accent.opacity(0.14)))
-        .drag_over::<ExternalPaths>(|style, _, _, cx| style.bg(cx.theme().accent.opacity(0.14)))
+        .drag_over::<FileDrag>(|style, _, _, cx| style.bg(cx.theme().drop_target))
+        .drag_over::<ExternalPaths>(|style, _, _, cx| style.bg(cx.theme().drop_target))
 }
 
 /// Key of the one [`TabHoverSpring`] a window's tab strip shares. It is resolved

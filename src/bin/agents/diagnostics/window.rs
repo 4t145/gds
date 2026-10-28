@@ -9,7 +9,7 @@ use gpui_kit::{
     assets::IconName,
     component::{
         ActiveTheme, Root,
-        input::{Input, InputEvent, InputState},
+        input::{InputEvent, InputState},
     },
     div,
     prelude::*,
@@ -405,7 +405,7 @@ impl Render for Viewer {
                             flex_1;
                             min_w_0;
                         } [
-                            $(crate::ui::input::placeholder(&self.search, Input::new(&self.search).cleanable(true))),
+                            $(crate::ui::input::placeholder(&self.search, gds::ui::field::input(&self.search, cx).cleanable(true))),
                         ],
                         ("logs-clear", IconName::ListX, $(crate::i18n::tr!("logs-clear"))).crate::ui::icon_action {
                             on_click: $(cx.listener(|this, _, _, cx| { this.clear(); cx.notify(); }));

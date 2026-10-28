@@ -23,8 +23,7 @@ pub const FONT_SIZE: f32 = 16.0;
 pub const UI_TEXT_SCALE: f32 = 0.875;
 
 /// Opacity applies only to surface backgrounds; text and icons stay opaque.
-pub const CONTENT_OPACITY: f32 = 1.0;
-pub const SIDEBAR_OPACITY: f32 = 1.0;
+pub const CONTENT_OPACITY: f32 = 0.85;
+pub const SIDEBAR_OPACITY: f32 = 0.5;
 /// An alpha-capable window lets per-surface opacity changes apply immediately.
-/// At the default surface opacities the application is fully opaque.
 pub const WINDOW_BACKGROUND: WindowBackgroundAppearance = WindowBackgroundAppearance::Transparent;

@@ -21,13 +21,16 @@ pub const DEFAULT_SIZE: f32 = crate::design::FONT_SIZE;
 /// GPUI's virtual family for the platform default UI font.
 const SYSTEM_FAMILY: &str = ".SystemUIFont";
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, crate::ConfigEditor)]
 #[serde(default)]
+#[config(validate = "Self::validate")]
 pub struct Preferences {
     /// An installed family name; `None` keeps the system/Kit default.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[setting(label = "form-font-family", kind = "font")]
     pub family: Option<String>,
     /// Base UI text size in pixels.
+    #[setting(label = "form-font-size", min = MIN_SIZE, max = MAX_SIZE, unit = " px")]
     pub size: f32,
 }
 
@@ -41,6 +44,12 @@ impl Default for Preferences {
 }
 
 impl Preferences {
+    /// # Errors
+    /// Rejects a base font size outside the shared supported range.
+    pub fn validate(&self) -> Result<(), Error> {
+        validate_size(self.size)
+    }
+
     /// Ratio applied to explicit pixel text sizes.
     pub fn scale(&self) -> f32 {
         self.size / DEFAULT_SIZE

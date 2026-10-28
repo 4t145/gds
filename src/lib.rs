@@ -1,5 +1,8 @@
 //! Shared foundation for the GDS desktop applications.
 
+extern crate self as gds;
+pub use gds_settings_derive::ConfigEditor;
+
 pub mod actions;
 pub mod configuration;
 pub mod design;

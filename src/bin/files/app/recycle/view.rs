@@ -6,7 +6,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::actions::Command;
 use gds::{
     i18n,
-    ui::{ContentPage, DataListStyle, DialogActions, IconButton, ShortcutBadge},
+    ui::{ContentPage, DataListStyle, DialogActions, IconButton, menu},
 };
 use gds_uim::el;
 use gpui_kit::assets::IconName;
@@ -31,8 +31,6 @@ const TABLE_INSET: f32 = ContentPage::TABLE_INSET;
 const STATE_GAP: f32 = 8.;
 const STATE_ICON_SIZE: f32 = 28.;
 const STATE_MAX_WIDTH: f32 = 420.;
-const MENU_WIDTH: f32 = 220.;
-const MENU_GAP: f32 = 24.;
 const NAME_PREVIEW_LIMIT: usize = 5;
 const CONFIRMATION_WIDTH: f32 = 480.;
 const CONFIRMATION_GAP: f32 = 8.;
@@ -215,18 +213,8 @@ fn render_table(browser: &Browser, window: &mut Window, cx: &mut Context<Browser
 fn menu_row(
     label: SharedString,
     command: Option<Command>,
-) -> impl Fn(&mut Window, &mut App) -> Div {
-    move |_, _| {
-        let label = label.clone();
-        el! {
-            .div {
-                flex; items_center; w_full; min_w: MENU_WIDTH.px; gap: MENU_GAP.px;
-            } [
-                .div { flex_1; min_w_0; truncate } [label],
-                @if (let Some(command) = command) command.ShortcutBadge::new, @end,
-            ]
-        }
-    }
+) -> impl Fn(&mut Window, &mut App) -> AnyElement {
+    menu::row(label, command.map(Into::into))
 }
 
 fn refresh_action(view: WeakEntity<Browser>) -> impl Fn(&ClickEvent, &mut Window, &mut App) {
@@ -278,6 +266,7 @@ fn area_menu(
     can_empty: bool,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu {
     move |menu, _, cx| {
+        let menu = menu::popup(menu);
         let refresh = {
             let on_click = refresh_action(view.clone());
             let render = menu_row(i18n::text("refresh", cx), Some(Command::Refresh));
@@ -307,6 +296,7 @@ fn area_menu(
 }
 
 pub(super) fn entry_menu(browser: &Browser, menu: PopupMenu, cx: &Context<Browser>) -> PopupMenu {
+    let menu = menu::popup(menu);
     let view = cx.entity().downgrade();
     let entries = browser.trash.selected_entries();
     let count = entries.len();

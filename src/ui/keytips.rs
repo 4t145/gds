@@ -67,6 +67,7 @@ const LAYER_PRIORITY: usize = 90;
 pub struct Keytips {
     this: WeakEntity<Self>,
     staged: Rc<RefCell<Staged>>,
+    _activation: Subscription,
 }
 
 #[derive(Default)]
@@ -126,20 +127,28 @@ enum Side {
 }
 
 impl Keytips {
-    fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let activation = cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                let changed = this.staged.borrow_mut().release();
+                if changed {
+                    cx.notify();
+                }
+            }
+        });
         Self {
             this: cx.entity().downgrade(),
             staged: Rc::new(RefCell::new(Staged::default())),
+            _activation: activation,
         }
     }
 }
 
 /// Drop any hint that is on screen.
 ///
-/// A window that loses activation never sees the matching modifier release, so
-/// the caller clears the layer instead of leaving the labels stuck on. The
-/// prefix presentation goes with it, so an armed prefix never leaks into the
-/// next focus.
+/// The plugin also clears on window deactivation, which may lose the matching
+/// modifier release. Callers can explicitly clear during other focus transitions.
+/// The prefix presentation goes with it.
 pub fn release(window: &Window, cx: &mut App) {
     let Some(layer) = layer(window, cx) else {
         return;
@@ -147,7 +156,7 @@ pub fn release(window: &Window, cx: &mut App) {
     let id = layer.entity_id();
     let staged = layer.read(cx).staged.clone();
     let mut staged = staged.borrow_mut();
-    let changed = staged.set_held(None) | staged.set_prefix(false);
+    let changed = staged.release();
     drop(staged);
     if changed {
         cx.notify(id);
@@ -232,14 +241,15 @@ impl Render for Keytips {
             let prefix = staged.prefix;
             let mut placed: Vec<_> = staged
                 .hints
-                .values()
-                .filter_map(|hint| {
+                .iter()
+                .filter_map(|(key, hint)| {
                     let bindings = hint.presentation(window, cx, focus, held, prefix)?;
                     Some((
                         hint.bounds,
                         hint.placement,
                         hint.shortcut.action().name(),
                         bindings,
+                        key.clone(),
                     ))
                 })
                 .collect();
@@ -253,14 +263,14 @@ impl Render for Keytips {
                     .then(f32::from(left.0.origin.x).total_cmp(&f32::from(right.0.origin.x)))
                     .then_with(|| left.2.cmp(right.2))
             });
-            for (anchor, placement, _, bindings) in placed {
+            for (anchor, placement, _, bindings, key) in placed {
                 slots.push(LabelSlot {
                     anchor,
                     placement,
                     // Measured from the real element in `HintLayer::prepaint`.
                     size: Size::default(),
                 });
-                labels.push(compact_label(&bindings, held, cx).into_any_element());
+                labels.push(compact_label(key, &bindings, held, cx).into_any_element());
             }
         }
         drop(staged);
@@ -356,6 +366,10 @@ fn visible_binding(
 }
 
 impl Staged {
+    fn release(&mut self) -> bool {
+        self.set_held(None) | self.set_prefix(false)
+    }
+
     /// Arm one modifier group, or disarm both. Returns whether the layer needs
     /// a frame to show the change.
     fn set_held(&mut self, held: Option<HeldModifier>) -> bool {
@@ -414,6 +428,40 @@ impl Staged {
 /// The label layer of the window's root, when one is mounted.
 fn layer(window: &Window, cx: &App) -> Option<Entity<Keytips>> {
     window.root::<Root>()??.read(cx).plugin::<Keytips>()
+}
+
+/// An out-of-flow anchor for custom controls whose parent render has no window argument.
+#[derive(IntoElement)]
+pub struct Anchor {
+    key: ElementId,
+    shortcut: Shortcut,
+    placement: HintPlacement,
+}
+
+impl Anchor {
+    pub fn new(key: impl Into<ElementId>, shortcut: impl Into<Shortcut>) -> Self {
+        Self {
+            key: key.into(),
+            shortcut: shortcut.into(),
+            placement: HintPlacement::Corner,
+        }
+    }
+
+    pub fn trailing_before(mut self, reserved: Pixels) -> Self {
+        self.placement = HintPlacement::TrailingBefore(reserved);
+        self
+    }
+
+    pub fn bottom_corner(mut self) -> Self {
+        self.placement = HintPlacement::BottomLeadingCorner;
+        self
+    }
+}
+
+impl RenderOnce for Anchor {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        staged_anchor(window, cx, self.key, self.shortcut, self.placement)
+    }
 }
 
 /// Stage one control's binding as a corner badge at its own bounds.
@@ -947,9 +995,19 @@ fn clamp_axis(origin: Pixels, length: Pixels, start: Pixels, end: Pixels) -> Pix
 
 /// One compact label holding the keys without the held modifier, such as `R`,
 /// `Shift+Tab` or `Tab+3`.
-fn compact_label(bindings: &[KeyBinding], held: HeldModifier, cx: &App) -> Div {
+fn compact_label(
+    key: ElementId,
+    bindings: &[KeyBinding],
+    held: HeldModifier,
+    cx: &App,
+) -> impl IntoElement + use<> {
     let text_size = typography::scaled(LABEL_TEXT_SIZE, cx);
+    let label = ShortcutBadge::path_label(bindings, held).unwrap_or_default();
     div()
+        .id(SharedString::from(format!("keytip-{key}")))
+        .test_support()
+        .role(Role::Label)
+        .aria_label(label.clone())
         .flex()
         .items_center()
         .py(px(LABEL_PADDING_Y))
@@ -963,7 +1021,7 @@ fn compact_label(bindings: &[KeyBinding], held: HeldModifier, cx: &App) -> Div {
         // text size; GPUI's golden-ratio default would make it a small pill.
         .line_height(px(f32::from(text_size) * LABEL_LINE_HEIGHT))
         .text_color(cx.theme().muted_foreground)
-        .child(ShortcutBadge::path_label(bindings, held).unwrap_or_default())
+        .child(label)
 }
 
 #[cfg(test)]

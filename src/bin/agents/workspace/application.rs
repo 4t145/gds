@@ -1,5 +1,4 @@
 use super::*;
-use gds_uim::el;
 use gpui_kit::component::menu::PopupMenuItem;
 
 fn application_item(
@@ -14,41 +13,10 @@ pub(super) fn action_item(
     action: Option<Box<dyn gpui_kit::Action>>,
     context: Option<&'static str>,
 ) -> PopupMenuItem {
-    let hint_action = action.as_ref().map(|action| action.boxed_clone());
-    let item = PopupMenuItem::element(move |window, _cx| {
-        let shortcut = hint_action.as_ref().and_then(|action| {
-            let shortcut = gds::ui::Shortcut::new(action.boxed_clone(), context);
-            shortcut.binding(window).map(|binding| {
-                el! {
-                    .div { # "shortcut"; test_support; flex_shrink_0 } [
-                        $(gds::ui::ShortcutBadge::binding(binding)),
-                    ]
-                }
-            })
-        });
-        el! {
-            .div {
-                id: label;
-                test_support;
-                role: gpui_kit::Role::Label;
-                aria_label: label;
-                flex;
-                flex_1;
-                items_center;
-                gap_4;
-                text_size: crate::ui::SMALL;
-            } [
-                .div {
-                    id: "label";
-                    test_support;
-                    flex_1;
-                } [
-                    $(label),
-                ],
-                ..shortcut,
-            ]
-        }
-    });
+    let shortcut = action
+        .as_ref()
+        .map(|action| gds::ui::Shortcut::new(action.boxed_clone(), context));
+    let item = PopupMenuItem::element(gds::ui::menu::row(label, shortcut));
     match action {
         Some(action) => item.action(action),
         None => item,

@@ -835,7 +835,7 @@ impl Render for Settings {
                 sidebar,
                 .div { flex_1; min_w_0; truncate } [$(crate::i18n::tr!("settings-title"))],
                 .div { # "settings-search"; test_support; w: 260.0.px } [
-                    $(crate::ui::input::placeholder(&self.search, Input::new(&self.search).small())),
+                    $(crate::ui::input::placeholder(&self.search, gds::ui::field::input(&self.search, cx).small())),
                 ],
             ]
         }.into_any_element();

@@ -1,7 +1,6 @@
 //! Filesystem label editing uses the shared UDisks2 operation service.
 
 use super::*;
-use gpui_kit::component::input::Input;
 
 impl Browser {
     pub(super) fn volume_can_rename(&self, id: &VolumeId, cx: &App) -> bool {
@@ -49,7 +48,7 @@ impl Browser {
                 let browser = browser.clone();
                 let id = id.clone();
                 let input = input.clone();
-                let field = Input::new(&input).w_full();
+                let field = gds::ui::field::input(&input, cx).w_full();
                 let footer = ui::DialogActions::new(
                     i18n::text("rename-confirm", cx),
                     IconName::Pencil,

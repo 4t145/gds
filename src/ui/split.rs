@@ -189,7 +189,7 @@ impl RenderOnce for VerticalSplit {
         let keyboard_up = self.state.clone();
         let keyboard_down = self.state.clone();
         let line = cx.theme().border;
-        let highlight = cx.theme().primary;
+        let highlight = cx.theme().drop_target;
         let divider = div()
             .id("vertical-split-divider")
             .track_focus(&focus)
@@ -202,13 +202,9 @@ impl RenderOnce for VerticalSplit {
             .flex()
             .items_center()
             .px_2()
-            .bg(if dragging {
-                highlight.opacity(0.16)
-            } else {
-                rgba(0).into()
-            })
-            .hover(|style| style.bg(highlight.opacity(0.12)))
-            .focus(|style| style.bg(highlight.opacity(0.16)))
+            .bg(if dragging { highlight } else { rgba(0).into() })
+            .hover(|style| style.bg(highlight))
+            .focus(|style| style.bg(highlight))
             .tooltip(move |window, cx| {
                 gpui_kit::component::tooltip::Tooltip::new(self.label.clone()).build(window, cx)
             })

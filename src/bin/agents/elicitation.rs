@@ -7,7 +7,7 @@ use gpui_kit::{
     App, Context, Entity, EventEmitter, Render, Subscription, TestSupportExt, Window,
     component::{
         button::*,
-        input::{Input, InputEvent, InputState},
+        input::{InputEvent, InputState},
         switch::Switch,
     },
     div,
@@ -280,7 +280,7 @@ impl Panel {
                 let input = &self.inputs[&name];
                 row = gds_uim::el! {
                     $(row) [
-                        $(crate::ui::input::placeholder(input, Input::new(input).id(id).small().disabled(self.submitting))),
+                        $(crate::ui::input::placeholder(input, gds::ui::field::input(input, cx).id(id).small().disabled(self.submitting))),
                     ]
                 };
             }

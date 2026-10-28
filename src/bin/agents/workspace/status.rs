@@ -3,6 +3,8 @@ use gds_uim::el;
 use gpui_kit::component::spinner::Spinner;
 
 const ACTIVITY_ICON_SIZE: f32 = crate::ui::ICON;
+const CONNECTION_LIGHT_SIZE: f32 = 6.;
+const CONNECTION_BADGE_INSET: f32 = 2.;
 
 /// Share the same motion and sizing across running activity indicators.
 pub(super) fn activity_icon(
@@ -184,6 +186,7 @@ impl Workspace {
         use crate::connections::{self, presentation};
         use gpui_kit::component::menu::PopupMenuItem;
 
+        let compact = !self.window.sidebar_visible;
         let label = self.server_status_label();
         let pending = !self.backend.connected || self.backend.error.is_some();
         let color = if self.backend.error.is_some() {
@@ -204,6 +207,47 @@ impl Workspace {
         let entries = profiles.read(cx).entries().to_vec();
         let owner = cx.entity().downgrade();
         let workspace_window = self.window.handle;
+        let loading_size = if compact {
+            crate::ui::SMALL_ICON
+        } else {
+            ACTIVITY_ICON_SIZE
+        };
+        let indicator = el! {
+            .div {
+                id: "server-status-indicator";
+                test_support;
+                role: gpui_kit::Role::Status;
+                aria_label: label;
+                size: CONNECTION_LIGHT_SIZE.px;
+                rounded_full;
+                flex_shrink_0;
+                bg: color;
+                when: pending, {
+                    size: loading_size.px;
+                    bg: $(gpui_kit::transparent_black());
+                };
+            } [
+                @if (pending)
+                    .div {
+                        id: "server-status-loading";
+                        test_support;
+                        size: loading_size.px;
+                    } [
+                        .Spinner::new {
+                            icon: IconName::LoaderCircle;
+                            with_size: loading_size.px;
+                            color: color;
+                        },
+                    ],
+                @end,
+            ]
+        };
+        let icon = el! {
+            $(presentation::icon(target)) {
+                size: crate::ui::ICON.px;
+                flex_shrink_0;
+            }
+        };
         let button = el! {
             ("server-status").Button::new {
                 small;
@@ -212,45 +256,44 @@ impl Workspace {
                 min_w_0;
                 accessibility_label: $(hint.clone());
                 tooltip: hint;
+                when: compact, {
+                    relative;
+                    size: gds::ui::ICON_BUTTON_SIZE.px;
+                    p_0;
+                    flex_shrink_0;
+                };
             } [
-                .div {
-                    id: "server-status-indicator";
-                    test_support;
-                    role: gpui_kit::Role::Status;
-                    aria_label: label;
-                    size: 6.0.px;
-                    rounded_full;
-                    flex_shrink_0;
-                    bg: color;
-                    when: pending, {
-                        size: ACTIVITY_ICON_SIZE.px;
-                        bg: $(gpui_kit::transparent_black());
-                    };
-                } [
-                    ..$(pending.then(|| activity_icon(
-                                "server-status-loading", IconName::LoaderCircle, color, true
-                    ))),
-                ],
-                $(presentation::icon(target)) {
-                    size: crate::ui::ICON.px;
-                    flex_shrink_0;
-                },
-                .div {
-                    id: "server-status-name";
-                    test_support;
-                    role: gpui_kit::Role::Label;
-                    aria_label: $(name.clone());
-                    flex_1;
-                    min_w_0;
-                    truncate;
-                    text_left;
-                } [
-                    $(name),
-                ],
-                (IconName::ChevronDown).Icon::new {
-                    size: crate::ui::SMALL_ICON.px;
-                    flex_shrink_0;
-                },
+                @if (compact)
+                    $(icon),
+                    .div {
+                        absolute;
+                        bottom: CONNECTION_BADGE_INSET.px;
+                        right: CONNECTION_BADGE_INSET.px;
+                        size: crate::ui::SMALL_ICON.px;
+                        flex;
+                        items_center;
+                        justify_center;
+                        rounded_full;
+                        bg: $(gds::theme::sidebar_background(cx));
+                    } [$(indicator)],
+                @else
+                    $(indicator),
+                    $(icon),
+                    .div {
+                        id: "server-status-name";
+                        test_support;
+                        role: gpui_kit::Role::Label;
+                        aria_label: $(name.clone());
+                        flex_1;
+                        min_w_0;
+                        truncate;
+                        text_left;
+                    } [$(name)],
+                    (IconName::ChevronDown).Icon::new {
+                        size: crate::ui::SMALL_ICON.px;
+                        flex_shrink_0;
+                    },
+                @end,
             ]
         };
         let menu = self.menu_button(
@@ -302,11 +345,16 @@ impl Workspace {
         el! {
             .div {
                 h: gds::ui::FOOTER_HEIGHT.px;
+                w_full;
                 flex_shrink_0;
                 flex;
                 items_center;
                 px_3;
                 min_w_0;
+                when: compact, {
+                    px_0;
+                    justify_center;
+                };
             } [
                 $(menu),
             ]

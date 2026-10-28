@@ -62,8 +62,16 @@ fn footer_switches_backends_in_place_and_restores_drafts(cx: &mut TestAppContext
             Some(crate::i18n::tr!("status-connected"))
         );
         assert_eq!(indicator.bounds().size.width, px(6.));
+        window.press("ctrl-b", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("server-status-name").is_none());
         let footer = window.find("server-status");
-        assert!(footer.bounds().size.width <= px(SIDEBAR_WIDTH));
+        assert!(footer.bounds().right() <= px(gds::ui::COLLAPSED_SIDEBAR_WIDTH));
+        assert!(
+            footer
+                .bounds()
+                .contains(&window.find("server-status-indicator").bounds().center())
+        );
         assert!(footer.label().unwrap().contains("TCP"));
         window.click("server-status", cx);
         window.render_frame(cx);
@@ -74,7 +82,7 @@ fn footer_switches_backends_in_place_and_restores_drafts(cx: &mut TestAppContext
                 .unwrap()
                 .contains(crate::i18n::tr!("connections-tcp-security"))
         );
-        assert!(menu_entry.bounds().size.width <= px(crate::ui::MENU_WIDTH));
+        assert!(menu_entry.bounds().size.width <= px(gds::ui::menu::MAX_WIDTH));
         window.press("down", cx);
         window.press("down", cx);
         window.press("down", cx);
@@ -170,6 +178,8 @@ fn footer_switches_backends_in_place_and_restores_drafts(cx: &mut TestAppContext
         assert_eq!(restored.entity_id(), fixture.view.entity_id());
         assert!(restored.read(cx).window.presented);
         assert!(!second.read(cx).window.presented);
+        assert!(!restored.read(cx).window.sidebar_visible);
+        window.press("ctrl-b", cx);
         window.render_frame(cx);
         assert_eq!(
             window.find("server-status-name").label(),

@@ -10,6 +10,7 @@ mod tests;
 
 pub use hot_reload::HotReload;
 pub use observer::{Change, Observer};
+pub use palette::Palette as Colors;
 
 use std::{fs, path::PathBuf};
 
@@ -211,6 +212,7 @@ fn apply_loaded(appearance: &Appearance, loaded: Loaded, cx: &mut App) -> Result
     // afterwards; Theme::update reconciles its colors/tokens/Base projection.
     Theme::change(ThemeMode::from(mode), None, cx);
     Theme::update(cx, |theme| palette.apply_to(&mut theme.colors));
+    cx.set_global(palette);
     cx.set_global(Material {
         content: palette.content,
         sidebar: palette.sidebar,

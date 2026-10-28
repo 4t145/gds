@@ -14,6 +14,63 @@ pub(super) mod restore;
 mod sidebar;
 pub(super) mod thread_row;
 
+pub(super) struct CycleTargets {
+    current: Option<SessionId>,
+    next: Option<SessionId>,
+    previous: Option<SessionId>,
+}
+
+impl CycleTargets {
+    fn new(threads: &[SessionId], current: Option<SessionId>) -> Self {
+        let index = threads.iter().position(|id| Some(*id) == current);
+        let (next, previous) = if threads.is_empty() {
+            (None, None)
+        } else {
+            let next = index.map_or(0, |index| (index + 1) % threads.len());
+            let previous = index.map_or(threads.len() - 1, |index| {
+                (index + threads.len() - 1) % threads.len()
+            });
+            (Some(threads[next]), Some(threads[previous]))
+        };
+        Self {
+            current,
+            next,
+            previous,
+        }
+    }
+
+    pub(super) fn hints(&self, session: SessionId, compact: bool) -> Vec<AnyElement> {
+        if self.current == Some(session) {
+            return Vec::new();
+        }
+        let mut hints = Vec::new();
+        for (target, name, reverse) in [
+            (self.next, "next", false),
+            (self.previous, "previous", true),
+        ] {
+            if target != Some(session) {
+                continue;
+            }
+            let action: Box<dyn gpui_kit::Action> = if reverse {
+                Box::new(PreviousThread)
+            } else {
+                Box::new(NextThread)
+            };
+            let hint = gds::ui::keytips::Anchor::new(
+                SharedString::from(format!("thread-{name}-{session}")),
+                gds::ui::Shortcut::new(action, Some("BasWorkspace")),
+            );
+            let hint = if compact {
+                hint.bottom_corner()
+            } else {
+                hint.trailing_before(px(gds::ui::ICON_BUTTON_SIZE + gds::ui::SIDEBAR_PADDING))
+            };
+            hints.push(hint.into_any_element());
+        }
+        hints
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum View {
     #[default]
@@ -133,6 +190,18 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let targets = self.thread_cycle_targets(cx);
+        let target = if reverse {
+            targets.previous
+        } else {
+            targets.next
+        };
+        let Some(target) = target else { return };
+        self.close_menu(window, cx);
+        self.select(target, window, cx);
+    }
+
+    pub(super) fn thread_cycle_targets(&self, cx: &App) -> CycleTargets {
         let sessions = self.visible_sessions();
         let query = self.navigation.search.read(cx).value().to_lowercase();
         let threads: Vec<_> = if self.navigation.view.flat() {
@@ -148,17 +217,6 @@ impl Workspace {
                 .map(|session| session.id)
                 .collect()
         };
-        if threads.is_empty() {
-            return;
-        }
-        let current = threads.iter().position(|id| Some(*id) == self.selected.id);
-        let next = match (current, reverse) {
-            (Some(index), false) => (index + 1) % threads.len(),
-            (Some(index), true) => (index + threads.len() - 1) % threads.len(),
-            (None, false) => 0,
-            (None, true) => threads.len() - 1,
-        };
-        self.close_menu(window, cx);
-        self.select(threads[next], window, cx);
+        CycleTargets::new(&threads, self.selected.id)
     }
 }

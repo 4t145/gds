@@ -58,7 +58,8 @@ impl Workspace {
                         when: user, {
                             border_1;
                             border_color: $(cx.theme().border);
-                            bg: $(cx.theme().muted.opacity(0.35));
+                            bg: $(cx.theme().secondary);
+                            text_color: $(cx.theme().secondary_foreground);
                         };
                     } [
                         ..$(message
@@ -462,7 +463,7 @@ impl Workspace {
                 gap_3;
                 pl_3;
                 border_l_2;
-                border_color: $(cx.theme().primary.opacity(0.55));
+                border_color: $(cx.theme().ring);
             } [
                 ..$(tool.raw_output
                     .as_ref()

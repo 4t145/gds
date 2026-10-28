@@ -17,7 +17,7 @@ fn omitted_appearance_fields_resolve_to_the_suite_defaults() {
 #[test]
 fn explicit_appearance_overrides_survive_the_shared_defaults() {
     let preferences = Preferences::from_json(
-        r#"{"ui_font_size":20,"content_font_size":18,"content_opacity":0.7,"background":"blurred"}"#,
+        r#"{"ui_font_size":20,"content_font_size":18,"content_opacity":0.7,"sidebar_opacity":0.3,"background":"blurred"}"#,
     )
     .expect("existing appearance");
     let effective = resolve(&preferences).expect("explicit preferences");
@@ -25,10 +25,7 @@ fn explicit_appearance_overrides_survive_the_shared_defaults() {
     assert_eq!(effective.content_font_size, 18.);
     assert_eq!(effective.background, WindowBackgroundAppearance::Blurred);
     assert_eq!(appearance(&preferences).content_opacity, 0.7);
-    assert_eq!(
-        appearance(&preferences).sidebar_opacity,
-        theme::Appearance::default().sidebar_opacity
-    );
+    assert_eq!(appearance(&preferences).sidebar_opacity, 0.3);
     assert_eq!(effective.preferences, preferences);
 }
 
@@ -66,19 +63,24 @@ fn sizes_and_opacity_are_validated_for_json_and_programmatic_callers() {
         );
     }
     for value in [f32::NAN, f32::INFINITY, -0.1, 1.1] {
-        assert!(
+        for preferences in [
             Preferences {
                 content_opacity: Some(value),
                 ..Preferences::default()
-            }
-            .validate()
-            .is_err()
-        );
+            },
+            Preferences {
+                sidebar_opacity: Some(value),
+                ..Preferences::default()
+            },
+        ] {
+            assert!(preferences.validate().is_err());
+        }
     }
     for value in [0., 1.] {
         assert!(
             Preferences {
                 content_opacity: Some(value),
+                sidebar_opacity: Some(value),
                 ..Preferences::default()
             }
             .validate()

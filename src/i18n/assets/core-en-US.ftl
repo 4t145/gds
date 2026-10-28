@@ -10,3 +10,14 @@ window-close = Close window
 window-maximize = Maximize window
 window-minimize = Minimize window
 window-restore = Restore window
+
+form-default = System default
+form-search = Search…
+form-reset = Reset to default
+form-font-family = Font family
+form-font-missing = { $family } (not installed)
+form-font-size = Font size
+form-language = Language
+form-time-format = Time format
+form-time-relative = Relative
+form-time-absolute = Absolute

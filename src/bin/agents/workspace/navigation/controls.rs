@@ -15,22 +15,19 @@ impl Workspace {
                     flex_1;
                     min_w_0;
                 } [
-                    $(crate::ui::input::placeholder(&self.navigation.search, Input::new(&self.navigation.search).small().prefix(search_icon).cleanable(true))),
+                    $(crate::ui::input::placeholder(&self.navigation.search, gds::ui::field::input(&self.navigation.search, cx).small().prefix(search_icon).cleanable(true))),
                 ]
             }.into_any_element()
         } else {
             let actions = self.sidebar_actions(false, cx);
             gds_uim::el! {
                 .div { flex; flex_1; min_w_0; items_center } [
-                    .div {
+                    ($(self.navigation.view.label()), cx).gds::ui::sidebar_section_title {
                         id: "sidebar-view-title";
                         test_support;
                         flex_1;
-                        min_w_0;
-                        truncate;
-                        text_size: crate::ui::SMALL;
-                        text_color: $(cx.theme().muted_foreground);
-                    } [$(self.navigation.view.label())],
+                        pl_2;
+                    },
                     ..actions,
                 ]
             }
@@ -55,14 +52,14 @@ impl Workspace {
             gds_uim::el! {
                     ($(if compact { "rail-search" } else { "sidebar-search" }), IconName::Search).layout::icon_button {
                         accessibility_label: $(crate::i18n::tr!("session-search"));
-                        hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("session-search"), FocusSearch));
+                        tooltip_with_shortcut: $(crate::i18n::tr!("session-search")), $(shortcuts::shortcut(FocusSearch));
                         on_click: $(cx.listener(Self::on_sidebar_search));
                     }
             }.into_any_element(),
             gds_uim::el! {
                     ($(if compact { "rail-new-session" } else { "new-session" }), IconName::Plus).layout::icon_button {
                         accessibility_label: $(crate::i18n::tr!("session-new"));
-                        hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("session-new"), NewSession));
+                        tooltip_with_shortcut: $(crate::i18n::tr!("session-new")), $(shortcuts::shortcut(NewSession));
                         on_click: $(cx.listener(Self::on_sidebar_new_session));
                     }
             }.into_any_element(),
@@ -70,7 +67,7 @@ impl Workspace {
             gds_uim::el! {
                     ($(if compact { "rail-add-workspace" } else { "add-workspace-button" }), IconName::FolderPlus).layout::icon_button {
                         accessibility_label: $(crate::i18n::tr!("workspace-add"));
-                        hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("workspace-add"), shortcuts::AddWorkspace));
+                        tooltip_with_shortcut: $(crate::i18n::tr!("workspace-add")), $(shortcuts::shortcut(shortcuts::AddWorkspace));
                         on_click: $(cx.listener(Self::on_sidebar_add_workspace));
                     }
             }.into_any_element(),

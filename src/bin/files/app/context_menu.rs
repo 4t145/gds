@@ -4,12 +4,8 @@
 use std::{collections::HashSet, ffi::OsString};
 
 use super::*;
-use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-
-const EDGE_MARGIN: f32 = 8.;
-const MENU_WIDTH: f32 = 220.;
 
 pub(super) struct OpenMenu {
     menu: Entity<PopupMenu>,
@@ -266,25 +262,7 @@ impl Browser {
 
     pub(super) fn render_selection_menu(&self, window: &Window) -> Option<AnyElement> {
         let open = self.keyboard_menu.as_ref()?;
-        Some(
-            deferred(
-                anchored().child(
-                    div()
-                        .w(window.bounds().size.width)
-                        .h(window.bounds().size.height)
-                        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
-                        .child(
-                            anchored()
-                                .position(open.position)
-                                .snap_to_window_with_margin(px(EDGE_MARGIN))
-                                .anchor(Anchor::TopLeft)
-                                .child(open.menu.clone()),
-                        ),
-                ),
-            )
-            .with_priority(gpui_kit::base::POPUP_PRIORITY)
-            .into_any_element(),
-        )
+        Some(ui::menu::overlay(open.menu.clone(), open.position, window))
     }
 
     pub(super) fn place_selection_menu(
@@ -292,6 +270,7 @@ impl Browser {
         mut menu: PopupMenu,
         cx: &Context<Self>,
     ) -> PopupMenu {
+        menu = ui::menu::popup(menu);
         let Some(path) = self.selected_place_path() else {
             return menu;
         };
@@ -329,14 +308,7 @@ impl Browser {
                 _ => unreachable!("place menu actions have icons"),
             };
             let shortcut = command != Command::OpenInNewTab || self.picker.is_none();
-            let row = move |_: &mut Window, _: &mut App| {
-                el! {
-                    .div { flex; items_center; w_full; min_w: MENU_WIDTH.px; gap: EDGE_MARGIN.px } [
-                        .div { flex_1; min_w_0 } [$(label.clone())],
-                        @if (shortcut) command.ui::ShortcutBadge::new, @end,
-                    ]
-                }
-            };
+            let row = ui::menu::row(label, shortcut.then(|| command.into()));
             menu = menu.item(PopupMenuItem::element(row).icon(icon).on_click(
                 move |_, window, cx| {
                     let _ = browser.update(cx, |view, cx| {

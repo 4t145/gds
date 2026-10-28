@@ -144,7 +144,7 @@ fn switching_threads_shows_loading_until_the_matching_window_arrives(cx: &mut Te
             assert!(window.find("conversation-history-loading").visible());
             assert!(window.try_find("empty-conversation-message").is_none());
             let transition = window.find("conversation-history-transition").bounds();
-            let composer = window.find("composer-panel").bounds();
+            let composer = window.find("conversation-control-panel").bounds();
             assert_eq!(transition.left(), composer.left());
             assert_eq!(transition.right(), composer.right());
             assert!(transition.size.height > px(0.));

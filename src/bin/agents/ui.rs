@@ -10,6 +10,7 @@ pub(crate) mod time;
 pub(crate) use content_row::ContentRow;
 pub(crate) use feedback::{Feedback, copy_button, message as feedback};
 pub(crate) use gds::ui::button::Button;
+pub(crate) use gds::ui::menu::popup as menu;
 pub(crate) use gds::ui::tooltip;
 pub(crate) use gds::ui::window as window_controls;
 
@@ -17,7 +18,7 @@ use gds_uim::el;
 use gpui_kit::{
     App, Rems,
     assets::IconName,
-    component::{ActiveTheme, Icon, Sizable, button::*, menu::PopupMenu},
+    component::{ActiveTheme, Icon, Sizable, button::*},
     prelude::*,
     px,
 };
@@ -28,12 +29,9 @@ pub(crate) const ICON: f32 = gds::design::ICON_SIZE;
 pub(crate) const SMALL_ICON: f32 = gds::design::SMALL_ICON_SIZE;
 pub(crate) const COMPACT_CONTROL: f32 = gds::ui::ICON_BUTTON_SIZE;
 pub(crate) const CONTROL: f32 = gds::design::ICON_BUTTON_SIZE;
-pub(crate) const MENU_WIDTH: f32 = 320.;
-pub(crate) const MENU_MAX_HEIGHT: f32 = 360.;
+pub(crate) const MENU_WIDTH: f32 = gds::ui::menu::WIDTH;
+pub(crate) const MENU_MAX_HEIGHT: f32 = gds::ui::menu::MAX_HEIGHT;
 pub(crate) const MENU_ROW_HEIGHT: f32 = 28.;
-const SUBTLE_FOREGROUND_OPACITY: f32 = 0.5;
-const SUBTLE_HOVER_OPACITY: f32 = 0.35;
-const SUBTLE_ACTIVE_OPACITY: f32 = 0.55;
 
 pub(crate) fn checkbox(
     id: impl Into<gpui_kit::ElementId>,
@@ -42,17 +40,7 @@ pub(crate) fn checkbox(
 }
 
 pub(crate) fn icon_button(id: impl Into<gpui_kit::ElementId>, icon: IconName) -> Button {
-    el! {
-        (id).Button::new {
-            ghost;
-            xsmall;
-            icon: $(Icon::new(icon).size(px(ICON)));
-            w: COMPACT_CONTROL.px;
-            h: COMPACT_CONTROL.px;
-            p_0;
-            flex_shrink_0;
-        }
-    }
+    Button::icon_button(id).control_icon(icon)
 }
 
 pub(crate) fn delete_icon(cx: &App) -> Icon {
@@ -86,27 +74,13 @@ pub(crate) fn subtle_icon_button(
     icon: IconName,
     cx: &App,
 ) -> Button {
-    let variant = ButtonCustomVariant::new(cx)
-        .foreground(cx.theme().foreground)
-        .hover(cx.theme().muted.opacity(SUBTLE_HOVER_OPACITY))
-        .active(cx.theme().muted.opacity(SUBTLE_ACTIVE_OPACITY));
     el! {
         (id, icon).icon_button {
-            custom: variant;
             text_color: $(secondary_foreground(cx));
         }
     }
 }
 
 pub(crate) fn secondary_foreground(cx: &App) -> gpui_kit::Hsla {
-    cx.theme()
-        .muted_foreground
-        .opacity(SUBTLE_FOREGROUND_OPACITY)
-}
-
-pub(crate) fn menu(menu: PopupMenu) -> PopupMenu {
-    menu.min_w(px(MENU_WIDTH))
-        .max_w(px(MENU_WIDTH))
-        .max_h(px(MENU_MAX_HEIGHT))
-        .scrollable(true)
+    cx.theme().muted_foreground
 }

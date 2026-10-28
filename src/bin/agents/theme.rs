@@ -91,6 +91,7 @@ pub(super) struct Appearance {
     pub content_font_size: f32,
     pub content_line_height: f32,
     pub content_opacity: f32,
+    pub sidebar_opacity: f32,
     pub composer_enter_behavior: preferences::ComposerEnterBehavior,
     pub default_agent: Option<String>,
     pub confirm_session_delete: bool,
@@ -228,6 +229,9 @@ fn apply(resolved: loader::Resolved, window: Option<&mut Window>, cx: &mut App) 
         content_opacity: preferences
             .content_opacity
             .unwrap_or(gds::design::CONTENT_OPACITY),
+        sidebar_opacity: preferences
+            .sidebar_opacity
+            .unwrap_or(gds::design::SIDEBAR_OPACITY),
         composer_enter_behavior: preferences.composer_enter_behavior,
         default_agent: preferences.default_agent.clone(),
         confirm_session_delete: preferences.confirm_session_delete.unwrap_or(true),

@@ -259,7 +259,8 @@ impl TableDelegate for VolumeTable {
     ) -> impl IntoElement {
         let row = &self.rows[index];
         let volume = &row.volume;
-        let foreground = if self.selected.as_ref() == Some(&volume.id) {
+        let selected = self.selected.as_ref() == Some(&volume.id);
+        let foreground = if selected {
             cx.theme().accent_foreground
         } else {
             cx.theme().foreground
@@ -285,8 +286,8 @@ impl TableDelegate for VolumeTable {
                 ] }.into_any_element()
             }
             1 => el! { .div { text_xs; truncate } [$(if volume.filesystem.is_empty() { "—".to_owned() } else { volume.filesystem.clone() })] }.into_any_element(),
-            2 if volume.mount_points.is_empty() => el! { .div { text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-not-mounted", cx)] }.into_any_element(),
-            2 => Browser::capacity_bar(format!("volume-table-capacity-{}", volume.object), row.capacity.as_ref(), false, cx).embedded().into_any_element(),
+            2 if volume.mount_points.is_empty() => el! { .div { text_xs; text_color: $(if selected { foreground } else { cx.theme().muted_foreground }) } [$i18n::text("device-not-mounted", cx)] }.into_any_element(),
+            2 => Browser::capacity_bar(format!("volume-table-capacity-{}", volume.object), row.capacity.as_ref(), false, cx).selected(selected).embedded().into_any_element(),
             _ => self.root_selector(row, cx),
         };
         el! { .div { size_full; min_w_0; flex; items_center; text_color: foreground } [content] }

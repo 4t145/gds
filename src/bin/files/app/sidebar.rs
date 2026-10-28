@@ -1,13 +1,11 @@
 //! Locations stay at the bottom; tabs and devices divide the remaining height.
 
 use super::*;
+use gds::ui::button::Button;
 use gds_uim::el;
 use gpui_kit::{
     assets::IconName,
-    component::{
-        ActiveTheme, Icon, Sizable,
-        button::{Button, ButtonVariants},
-    },
+    component::{ActiveTheme, Icon, Sizable, button::ButtonVariants},
     prelude::*,
 };
 
@@ -56,7 +54,7 @@ impl Browser {
         let heading = el! {
             .div { flex; items_center; gap: GROUP_GAP.px; w_full; min_w_0 } [
                 $(if collapsed { IconName::ChevronRight } else { IconName::ChevronDown }).Icon::new { size: 12.0.px },
-                .div { text_xs; truncate } [$i18n::text("volumes", cx)],
+                ($i18n::text("volumes", cx), cx).ui::sidebar_section_title,
             ]
         };
         el! {
@@ -85,7 +83,7 @@ impl Browser {
             .div { flex; flex_col; size_full; min_h_0; px: ui::SIDEBAR_PADDING.px; pt: GROUP_GAP.px } [
                 .div { flex; items_center; flex_shrink_0; h: HEADER_HEIGHT.px } [
                     @if (!self.sidebar_collapsed)
-                        .div { flex_1; px: GROUP_GAP.px; text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("tabs", cx)],
+                        ($i18n::text("tabs", cx), cx).ui::sidebar_section_title { flex_1; px: GROUP_GAP.px },
                     @end,
                     "new-tab".ui::IconButton::new { icon: IconName::Plus; label: $i18n::text("new-tab", cx);
                         command: Command::NewTab; on_click: on_new_tab;
@@ -120,9 +118,9 @@ impl Browser {
                 px: ui::SIDEBAR_PADDING.px; pb: ui::SIDEBAR_PADDING.px; gap: ROW_GAP.px;
             } [
                 @if (!self.sidebar_collapsed)
-                    .div { flex; items_center; flex_shrink_0; h: LOCATION_HEADER_HEIGHT.px;
-                        px: GROUP_GAP.px; text_xs; text_color: $cx.theme().muted_foreground;
-                    } [$i18n::text("locations", cx)],
+                    ($i18n::text("locations", cx), cx).ui::sidebar_section_title {
+                        flex; items_center; flex_shrink_0; h: LOCATION_HEADER_HEIGHT.px; px: GROUP_GAP.px;
+                    },
                 @end,
                 ..locations,
             ]

@@ -10,7 +10,7 @@ use gds::{i18n, notifications, ui::DialogActions};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::WindowExt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{ActiveTheme, Icon};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -279,7 +279,7 @@ impl Render for State {
         let error = self.error.clone();
         el! {
             .div { flex; flex_col; w_full; min_w_0; gap: DIALOG_GAP.px } [
-                .div { w_full; min_w_0 } [($&input).Input::new { w_full }],
+                .div { w_full; min_w_0 } [($&input, cx).gds::ui::field::input { w_full }],
                 @if (let Some(error) = error)
                     .div { text_xs; text_color: $cx.theme().danger } [error],
                 @end,

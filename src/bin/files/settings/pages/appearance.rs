@@ -4,7 +4,7 @@ use gpui_kit::*;
 
 use crate::settings::{
     View,
-    controls::{FONT_SIZE_RANGE, Field, PERCENTAGE_RANGE, SettingNote, SettingRow},
+    controls::{Field, PERCENTAGE_RANGE, SettingNote, SettingRow},
 };
 use gds::i18n::text;
 
@@ -26,14 +26,6 @@ impl View {
         let mode_row = SettingRow::editable(Field::Mode, self, mode, cx);
         let content_opacity = self.percentage_row(Field::ContentOpacity, cx);
         let sidebar_opacity = self.percentage_row(Field::SidebarOpacity, cx);
-        let family = self.font_family.render(
-            Field::FontFamily,
-            text("font-family-system", cx),
-            text("font-family-search", cx),
-            cx,
-        );
-        let family_row = SettingRow::editable(Field::FontFamily, self, family, cx);
-        let size_row = self.font_size_row(cx);
         let sample_text = text("font-sample", cx);
         let sample = el! {
             .div {
@@ -50,8 +42,7 @@ impl View {
                 mode_row,
                 content_opacity,
                 sidebar_opacity,
-                family_row,
-                size_row,
+                $(self.font.clone()),
                 sample,
                 .div { pt_4 } [font_note],
                 .div { pt_2 } [blur_note],
@@ -66,16 +57,5 @@ impl View {
         let value_label = format!("{:.0}%", PERCENTAGE_RANGE.quantize(value)).into();
         let control = self.number_control(field).render(field, value_label, cx);
         SettingRow::editable(field, self, control, cx)
-    }
-
-    fn font_size_row(&self, cx: &mut Context<Self>) -> SettingRow {
-        let value = Field::FontSize
-            .number(&self.preferences)
-            .expect("the font size field owns a numeric control");
-        let value_label = format!("{:.0} px", FONT_SIZE_RANGE.quantize(value)).into();
-        let control = self
-            .number_control(Field::FontSize)
-            .render(Field::FontSize, value_label, cx);
-        SettingRow::editable(Field::FontSize, self, control, cx)
     }
 }

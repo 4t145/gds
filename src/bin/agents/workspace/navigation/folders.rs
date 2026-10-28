@@ -36,7 +36,7 @@ impl Workspace {
                 ghost;
                 xsmall;
                 h: layout::ICON_BUTTON_SIZE.px;
-                icon: IconName::Folder;
+                control_icon: IconName::Folder;
                 accessibility_label: $(name.clone());
                 when: $(self.window.compact), {
                     w: layout::ICON_BUTTON_SIZE.px;

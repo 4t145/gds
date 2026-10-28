@@ -4,9 +4,9 @@ use std::{cell::Cell, rc::Rc};
 
 use gpui_kit::{
     AnyWindowHandle, Bounds, DismissEvent, FocusHandle, Focusable, MouseButton,
-    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, anchored, canvas,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, canvas,
     component::menu::{DropdownMenu, PopupMenu},
-    deferred, point,
+    point,
     popup::{PopupAnchor, PopupConstraintAdjustment, PopupGravity, PopupOptions},
 };
 
@@ -29,6 +29,7 @@ pub(super) struct OpenMenu {
 
 struct MenuSurface {
     content: Entity<PopupMenu>,
+    width: Pixels,
 }
 
 #[derive(Clone)]
@@ -43,6 +44,7 @@ impl Render for MenuSurface {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         gds_uim::el! {
             .div {
+                w: $(self.width);
                 p: $(px(SHADOW_PADDING));
                 on_action: $(cx.listener(Self::on_settings));
                 on_action: $(cx.listener(Self::on_quit));
@@ -69,8 +71,10 @@ impl MenuSurface {
     }
 
     fn resize_to_content(bounds: Bounds<Pixels>, window: &mut Window, _: &mut App) {
-        let desired = size(window.bounds().size.width, bounds.size.height.ceil());
-        if desired != window.bounds().size {
+        let desired = bounds.size.map(|dimension| dimension.ceil());
+        // Wayland adds decoration insets to the configured window size; resize
+        // requests use the inner geometry, so compare the same coordinate space.
+        if desired != window.inner_window_bounds().get_bounds().size {
             window.resize(desired);
         }
     }
@@ -100,24 +104,17 @@ impl Workspace {
         );
     }
 
-    pub(super) fn inline_context_menu(&self) -> Option<AnyElement> {
+    pub(super) fn inline_context_menu(&self, window: &Window) -> Option<AnyElement> {
         let menu = self
             .window
             .menu
             .as_ref()
             .filter(|menu| !self.window.compact && menu.window.is_none())?;
-        Some(
-            deferred(gds_uim::el! {
-                .anchored {
-                    position: $(menu.trigger.origin);
-                    snap_to_window_with_margin: 8.0.px;
-                } [
-                    $(menu.content.clone()),
-                ]
-            })
-            .with_priority(gpui_kit::base::POPUP_PRIORITY)
-            .into_any_element(),
-        )
+        Some(gds::ui::menu::overlay(
+            menu.content.clone(),
+            menu.trigger.origin,
+            window,
+        ))
     }
 
     pub(super) fn menu_button(
@@ -245,18 +242,23 @@ impl Workspace {
         let content = PopupMenu::build(window, cx, |menu, window, cx| {
             gds_uim::el! {
                 $(crate::ui::menu(build(menu, window, cx))) {
-                    min_w: $(menu_size.width);
-                    max_w: $(menu_size.width);
-                    max_h: $(menu_size.height);
+                    when: $(self.window.compact), {
+                        min_w: $(menu_size.width);
+                        max_w: $(menu_size.width);
+                        max_h: $(menu_size.height);
+                    };
                 }
             }
         });
         let parent = window.window_handle();
         let menu = content.clone();
-        let native =
+        let native = if self.window.compact {
             match cx.open_window(popup_options(parent, trigger, menu_size), |window, cx| {
                 menu.focus_handle(cx).focus(window, cx);
-                let surface = cx.new(|_| MenuSurface { content: menu });
+                let surface = cx.new(|_| MenuSurface {
+                    content: menu,
+                    width: menu_size.width + px(SHADOW_PADDING * 2.),
+                });
                 cx.new(|cx| {
                     gds_uim::el! {
                         (surface, window, cx).theme::window_root {
@@ -271,7 +273,11 @@ impl Workspace {
                     content.focus_handle(cx).focus(window, cx);
                     None
                 }
-            };
+            }
+        } else {
+            content.focus_handle(cx).focus(window, cx);
+            None
+        };
         let dismissed = cx.subscribe_in(&content, window, Self::on_menu_dismissed);
         let view = cx.entity().downgrade();
         let closed = cx.on_window_closed(move |cx, id| {
@@ -289,7 +295,7 @@ impl Workspace {
             previous_focus,
             _subscriptions: vec![dismissed, closed],
         });
-        if native.is_none() {
+        if self.window.compact && native.is_none() {
             self.resize_window(window, cx);
         }
         cx.notify();
@@ -310,7 +316,9 @@ impl Workspace {
                 });
             }
         } else {
-            self.resize_window(window, cx);
+            if self.window.compact {
+                self.resize_window(window, cx);
+            }
             if menu.content.focus_handle(cx).contains_focused(window, cx)
                 && let Some(previous) = menu.previous_focus
             {

@@ -21,7 +21,12 @@ impl Workspace {
         )
     }
 
-    pub(super) fn thread_row(&self, session: &SessionMeta, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn thread_row(
+        &self,
+        session: &SessionMeta,
+        cycle: &super::CycleTargets,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = session.id;
         let editing = self.renaming_thread(id);
         let pinned = self.navigation.pinned.contains(&id);
@@ -115,7 +120,7 @@ impl Workspace {
                 .text_color(if selected {
                     cx.theme().sidebar_accent_foreground
                 } else {
-                    cx.theme().foreground
+                    cx.theme().sidebar_foreground
                 }),
             pinned,
             cx,
@@ -125,17 +130,21 @@ impl Workspace {
                 id: $(SharedString::from(format!("session-{id}")));
                 test_support;
                 group: group;
+                relative;
                 w_full;
                 flex_shrink_0;
                 h: gds::ui::SIDEBAR_ITEM_HEIGHT.px;
                 px_2;
                 rounded: 6.0.px;
                 tooltip_show_delay: gds::ui::TOOLTIP_DELAY;
-                hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(hint.clone(), window, cx));
+                when: $(self.window.menu.is_none()), {
+                    hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(hint.clone(), window, cx));
+                };
                 cursor_pointer;
                 flex;
                 items_center;
                 gap_2;
+                text_color: $(cx.theme().sidebar_foreground);
                 when: selected, {
                     bg: $(cx.theme().sidebar_accent);
                     text_color: $(cx.theme().sidebar_accent_foreground);
@@ -155,6 +164,7 @@ impl Workspace {
                             this.on_thread_row_context_menu(&menu_session, event, window, cx);
                 }));
             } [
+                ..$(cycle.hints(id, false)),
                 .div {
                     h: layout::ICON_BUTTON_SIZE.px;
                     flex;

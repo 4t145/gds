@@ -1,14 +1,10 @@
 use super::*;
 
-use gds::ui::{ContentPage, DataListStyle, Frame, IconButton, NavItem};
+use gds::ui::{ContentPage, DataListStyle, Frame, IconButton, NavItem, button::Button};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Sizable,
-    button::{Button, ButtonVariants},
-    input::Input,
-    menu::ContextMenuExt,
-    table::DataTable,
+    ActiveTheme, Icon, Sizable, button::ButtonVariants, menu::ContextMenuExt, table::DataTable,
     tooltip::Tooltip,
 };
 use gpui_kit::prelude::*;
@@ -281,7 +277,7 @@ impl Browser {
         if self.path_editing {
             return el! {
                 .div { flex_1; min_w_0; px: CAPTION_PADDING.px } [
-                    ($&self.path_input).Input::new { small; w_full },
+                    ($&self.path_input, cx).ui::field::input { small; w_full },
                 ]
             }
             .into_any_element();
@@ -411,8 +407,9 @@ impl Browser {
                 @if (compact) h: ui::SIDEBAR_ITEM_HEIGHT.px; min_h: ui::SIDEBAR_ITEM_HEIGHT.px; justify_center;
                 @else min_h: TAB_HEIGHT.px; @end;
                 px: ITEM_GAP.px; rounded: ITEM_RADIUS.px; cursor_pointer;
-                @if (selected) bg: $cx.theme().selection;
-                @else hover: { bg: $cx.theme().secondary }; @end;
+                text_color: $cx.theme().sidebar_foreground;
+                @if (selected) bg: $cx.theme().sidebar_accent; text_color: $cx.theme().sidebar_accent_foreground;
+                @else hover: { bg: $(gds::theme::Colors::current(cx).sidebar_hover()) }; @end;
                 on_click: on_click;
                 on_hover: on_hover;
                 @if (!self.revealing_tab_close()) tooltip_show_delay: ui::TOOLTIP_DELAY; tooltip: tooltip; @end;
@@ -422,7 +419,7 @@ impl Browser {
                 @if (!compact)
                     .div { flex_1; min_w_0; flex; flex_col } [
                         .div { text_ellipsis } [title],
-                        .div { text_xs; text_color: $cx.theme().muted_foreground; text_ellipsis } [path],
+                        .div { text_xs; text_color: $(if selected { cx.theme().sidebar_accent_foreground } else { cx.theme().muted_foreground }); text_ellipsis } [path],
                     ],
                     $(close),
                 @else
@@ -635,7 +632,7 @@ impl Browser {
         );
         let filter = el! {
             .div { relative; w: FILTER_WIDTH.px; flex_shrink_0 } [
-                ($&self.filter_input).Input::new { small; cleanable: true; prefix: IconName::Search.Icon::new },
+                ($&self.filter_input, cx).ui::field::input { small; cleanable: true; prefix: IconName::Search.Icon::new },
                 filter_hint,
             ]
         };

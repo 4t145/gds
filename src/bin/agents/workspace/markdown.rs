@@ -162,7 +162,8 @@ fn markdown_style(cx: &App) -> TextViewStyle {
                 .rounded_md()
                 .overflow_hidden()
                 .border_color(cx.theme().border)
-                .bg(cx.theme().foreground.opacity(0.025))
+                .bg(cx.theme().secondary)
+                .text_color(cx.theme().secondary_foreground)
                 .text_size(font_size)
                 .line_height(gpui_kit::relative(theme::content_line_height(cx))),
         )
@@ -174,8 +175,8 @@ fn markdown_style(cx: &App) -> TextViewStyle {
                 .font_weight(FontWeight::SEMIBOLD),
         )
         .with_inline_code(gpui_kit::HighlightStyle {
-            color: Some(cx.theme().foreground),
-            background_color: Some(cx.theme().foreground.opacity(0.08)),
+            color: Some(cx.theme().secondary_foreground),
+            background_color: Some(cx.theme().secondary),
             ..Default::default()
         })
 }

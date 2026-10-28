@@ -516,11 +516,15 @@ impl Browser {
         move |menu, _, cx| {
             let on_pin = Self::menu_pin(view.clone(), id);
             let on_close = Self::menu_close_tab(view.clone(), id);
-            menu.item(
-                PopupMenuItem::new(i18n::text(if pinned { "unpin-tab" } else { "pin-tab" }, cx))
+            ui::menu::popup(menu)
+                .item(
+                    PopupMenuItem::new(i18n::text(
+                        if pinned { "unpin-tab" } else { "pin-tab" },
+                        cx,
+                    ))
                     .on_click(on_pin),
-            )
-            .item(PopupMenuItem::new(i18n::text("close-this-tab", cx)).on_click(on_close))
+                )
+                .item(PopupMenuItem::new(i18n::text("close-this-tab", cx)).on_click(on_close))
         }
     }
 

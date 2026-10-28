@@ -1,7 +1,7 @@
 use bas::model::{Role, ToolCallStatus};
 use gpui_kit::ClickEvent;
 
-use super::composer::{COMPOSER_CONTROL_INSET, COMPOSER_SIDE_PADDING};
+use super::composer::COMPOSER_CONTROL_INSET;
 use super::*;
 
 pub(super) mod content;
@@ -11,6 +11,8 @@ pub(super) const CONTENT_WIDTH: f32 = 840.;
 pub(super) const THREAD_BODY_PADDING: f32 = 12.;
 const INITIALIZATION_MESSAGES_MAX_HEIGHT: f32 = 160.;
 const APPROVAL_PANEL_HEIGHT: f32 = 240.;
+const CONTROL_PANEL_PADDING: f32 = 12.;
+const CONTROL_PANEL_BOTTOM_MARGIN: f32 = 16.;
 
 pub(super) fn content_panel() -> Div {
     gds_uim::el! {
@@ -79,48 +81,88 @@ impl Workspace {
                 ..$(self.render_notices(cx)),
                 ..$((!self.composer_fills_thread()).then(|| self.render_timeline(cx))),
                 ..$(self.composer_fills_thread().then(|| self.render_initialization_messages(cx)).flatten()),
-                ().content_panel {
-                    id: "thread-composition";
+                $(self.render_control_panel(cx)),
+            ]
+        }.into_any_element()
+    }
+
+    fn render_control_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let fills_thread = self.composer_fills_thread();
+        let surface =
+            gds::ui::surface::glass_panel(cx.global::<theme::Appearance>().content_opacity, cx);
+        gds_uim::el! {
+            ().content_panel {
+                id: "thread-composition";
+                test_support;
+                flex;
+                flex_col;
+                flex_shrink_0;
+                pt: CONTROL_PANEL_PADDING.px;
+                pb: CONTROL_PANEL_BOTTOM_MARGIN.px;
+                when: fills_thread, {
+                    flex_1;
+                    min_h_0;
+                };
+            } [
+                $(surface) {
+                    id: "conversation-control-panel";
                     test_support;
+                    w_full;
+                    min_w_0;
                     flex;
                     flex_col;
-                    flex_shrink_0;
-                    when: $(self.composer_fills_thread()), {
+                    p: CONTROL_PANEL_PADDING.px;
+                    when: fills_thread, {
                         flex_1;
                         min_h_0;
                     };
-                    when: $(self.window.compact), {
-                        px: $(px(COMPOSER_SIDE_PADDING));
-                    };
                 } [
-                    .div {
-                        w_full;
-                        id: "conversation-status";
-                        test_support;
-                        flex;
-                        items_center;
-                        gap_2;
-                        pl: $(px(COMPOSER_CONTROL_INSET));
-                        py_1;
-                    } [
-                        $(self.agent_button(cx)),
-                        ..$(self.render_plan_indicator(cx)),
-                        $(self.session_indicator("conversation-connection", cx)),
-                        ..$(self.activity_label().map(|label| gds_uim::el! {$(caption(label, cx)) {
-                                        flex_1;
-                                        min_w_0;
-                                        truncate;
-                        }})),
-                        .div {
-                            flex_1;
-                        },
-                        ..$((self.selected.id.is_some() && !self.composer_fills_thread())
-                            .then(|| self.render_conversation_navigation(cx))),
-                    ],
+                    $(self.render_control_header(cx)),
                     $(self.render_composer(cx)),
                 ],
             ]
-        }.into_any_element()
+        }
+        .into_any_element()
+    }
+
+    fn render_control_header(&self, cx: &mut Context<Self>) -> AnyElement {
+        gds_uim::el! {
+            .div {
+                id: "conversation-status";
+                test_support;
+                w_full;
+                min_w_0;
+                flex;
+                flex_shrink_0;
+                items_center;
+                gap_2;
+                px: COMPOSER_CONTROL_INSET.px;
+                mb_2;
+            } [
+                $(self.agent_button(cx)),
+                ..$(self.render_plan_indicator(cx)),
+                $(self.session_indicator("conversation-connection", cx)),
+                .div {
+                    flex_1;
+                    min_w_0;
+                } [
+                    ..$(self.activity_label().map(|label| gds_uim::el! {$(caption(label, cx)) {
+                        truncate;
+                    }})),
+                ],
+                .div {
+                    flex;
+                    items_center;
+                    flex_shrink_0;
+                    gap_1;
+                } [
+                    ..$((self.selected.id.is_some() && !self.composer_fills_thread())
+                        .then(|| self.render_conversation_navigation(cx))),
+                    $(self.composer_expansion_button(cx)),
+                ],
+            ]
+        }
+        .into_any_element()
     }
 
     pub(super) fn render_conversation_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -134,12 +176,12 @@ impl Workspace {
             } [
                 $(message_actions::action_button("scroll-to-top", IconName::ArrowUp, cx)) {
                     accessibility_label: $(crate::i18n::tr!("conversation-top"));
-                    hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("conversation-top"), shortcuts::ScrollConversationToTop));
+                    tooltip_with_shortcut: $(crate::i18n::tr!("conversation-top")), $(shortcuts::shortcut(shortcuts::ScrollConversationToTop));
                     on_click: $(cx.listener(Self::on_chat_top));
                 },
                 $(message_actions::action_button("scroll-to-bottom", IconName::ArrowDown, cx)) {
                     accessibility_label: $(crate::i18n::tr!("conversation-latest"));
-                    hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("conversation-latest"), ScrollConversationToEnd));
+                    tooltip_with_shortcut: $(crate::i18n::tr!("conversation-latest")), $(shortcuts::shortcut(ScrollConversationToEnd));
                     on_click: $(cx.listener(Self::on_chat_bottom));
                 },
             ]
@@ -225,7 +267,8 @@ impl Workspace {
                                     border_1;
                                     rounded_md;
                                     border_color: $(cx.theme().border);
-                                    bg: $(cx.theme().muted.opacity(0.2));
+                                    bg: $(cx.theme().secondary);
+                                    text_color: $(cx.theme().secondary_foreground);
                                     max_h: $(px(360.));
                                     overflow_y_scroll;
                                 } [

@@ -3,6 +3,8 @@
 mod controls;
 mod form;
 mod sessions;
+#[cfg(all(test, feature = "gui-tests"))]
+mod tests;
 use crate::theme::{self, preferences::Preferences};
 use form::{DraftError, Form};
 use gpui_kit::{
@@ -72,21 +74,23 @@ enum Field {
     ContentSize,
     LineHeight,
     Opacity,
+    SidebarOpacity,
     ComposerEnter,
 }
 impl Field {
-    const ALL: [Self; 11] = [
+    const ALL: [Self; 12] = [
         Self::Language,
         Self::Source,
         Self::Mode,
         Self::Background,
+        Self::Opacity,
+        Self::SidebarOpacity,
         Self::UiFont,
         Self::UiSize,
         Self::ContentSize,
         Self::MonoFont,
         Self::Fallbacks,
         Self::LineHeight,
-        Self::Opacity,
     ];
     fn id(self) -> &'static str {
         match self {
@@ -101,6 +105,7 @@ impl Field {
             Self::ContentSize => "appearance-content-size",
             Self::LineHeight => "appearance-line-height",
             Self::Opacity => "appearance-opacity",
+            Self::SidebarOpacity => "appearance-sidebar-opacity",
             Self::ComposerEnter => "appearance-composer-enter",
         }
     }
@@ -117,6 +122,7 @@ impl Field {
             Self::ContentSize => crate::i18n::tr!("appearance-content-size"),
             Self::LineHeight => crate::i18n::tr!("appearance-line-height"),
             Self::Opacity => crate::i18n::tr!("appearance-opacity"),
+            Self::SidebarOpacity => crate::i18n::tr!("appearance-sidebar-opacity"),
             Self::ComposerEnter => crate::i18n::tr!("appearance-enter"),
         }
     }
@@ -133,6 +139,7 @@ impl Field {
             Self::ContentSize => crate::i18n::tr!("appearance-content-size-help"),
             Self::LineHeight => crate::i18n::tr!("appearance-line-height-help"),
             Self::Opacity => crate::i18n::tr!("appearance-opacity-help"),
+            Self::SidebarOpacity => crate::i18n::tr!("appearance-sidebar-opacity-help"),
             Self::ComposerEnter => {
                 crate::i18n::tr!("appearance-enter-help")
             }
@@ -141,11 +148,13 @@ impl Field {
     fn group(self) -> Group {
         match self {
             Self::Language => Group::Theme,
-            Self::Source | Self::Mode | Self::Background => Group::Theme,
+            Self::Source | Self::Mode | Self::Background | Self::Opacity | Self::SidebarOpacity => {
+                Group::Theme
+            }
             Self::UiFont | Self::MonoFont | Self::Fallbacks | Self::UiSize | Self::ContentSize => {
                 Group::Fonts
             }
-            Self::LineHeight | Self::Opacity | Self::ComposerEnter => Group::Layout,
+            Self::LineHeight | Self::ComposerEnter => Group::Layout,
         }
     }
     fn matches(self, query: &str) -> bool {
@@ -377,7 +386,7 @@ impl AppearancePage {
         }
     }
 
-    fn control(&self, field: Field) -> gpui_kit::AnyElement {
+    fn control(&self, field: Field, cx: &App) -> gpui_kit::AnyElement {
         match field {
             Field::Language => gds_uim::el! {
                 .div {
@@ -385,7 +394,7 @@ impl AppearancePage {
                     test_support;
                     w_full;
                 } [
-                    ($(&self.form.language)).Select::new {
+                    ($(&self.form.language), cx).gds::ui::field::select {
                         small;
                         w_full;
                         cursor_pointer;
@@ -394,21 +403,21 @@ impl AppearancePage {
             }
             .into_any_element(),
             Field::Source => gds_uim::el! {
-                ($(&self.form.source)).Select::new {
+                ($(&self.form.source), cx).gds::ui::field::select {
                     small;
                     cursor_pointer;
                 }
             }
             .into_any_element(),
             Field::Mode => gds_uim::el! {
-                ($(&self.form.mode)).Select::new {
+                ($(&self.form.mode), cx).gds::ui::field::select {
                     small;
                     cursor_pointer;
                 }
             }
             .into_any_element(),
             Field::Background => gds_uim::el! {
-                ($(&self.form.background)).Select::new {
+                ($(&self.form.background), cx).gds::ui::field::select {
                     small;
                     cursor_pointer;
                 }
@@ -420,7 +429,7 @@ impl AppearancePage {
                     test_support;
                     w_full;
                 } [
-                    ($(&self.form.composer_enter)).Select::new {
+                    ($(&self.form.composer_enter), cx).gds::ui::field::select {
                         small;
                         w_full;
                         cursor_pointer;
@@ -429,7 +438,7 @@ impl AppearancePage {
             }
             .into_any_element(),
             Field::UiFont => gds_uim::el! {
-                ($(&self.form.ui_font)).Select::new {
+                ($(&self.form.ui_font), cx).gds::ui::field::select {
                     small;
                     cursor_pointer;
                     search_placeholder: $(crate::i18n::tr!("appearance-search-font"));
@@ -437,14 +446,18 @@ impl AppearancePage {
             }
             .into_any_element(),
             Field::MonoFont => gds_uim::el! {
-                ($(&self.form.mono_font)).Select::new {
+                ($(&self.form.mono_font), cx).gds::ui::field::select {
                     small;
                     cursor_pointer;
                     search_placeholder: $(crate::i18n::tr!("appearance-search-font"));
                 }
             }
             .into_any_element(),
-            Field::UiSize | Field::ContentSize | Field::LineHeight | Field::Opacity => {
+            Field::UiSize
+            | Field::ContentSize
+            | Field::LineHeight
+            | Field::Opacity
+            | Field::SidebarOpacity => {
                 unreachable!("numeric fields use shared sliders")
             }
             _ => {
@@ -460,7 +473,7 @@ impl AppearancePage {
                         w_full;
                         min_w_0;
                     } [
-                        $(crate::ui::input::placeholder(&input, Input::new(&input).small().disabled(self.document.is_none()))),
+                        $(crate::ui::input::placeholder(&input, gds::ui::field::input(&input, cx).small().disabled(self.document.is_none()))),
                     ]
                 }
                 .into_any_element()

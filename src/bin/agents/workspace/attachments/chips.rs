@@ -39,9 +39,9 @@ impl Workspace {
                         let name = attachment.name.clone();
                         let icon = if image { IconName::Image } else { IconName::File };
                         let background = if selected {
-                                cx.theme().primary.opacity(0.18)
+                                cx.theme().accent
                             } else {
-                                cx.theme().background
+                                cx.theme().secondary
                             };
                         let mut chip = el! {
                             .div {
@@ -57,7 +57,7 @@ impl Workspace {
                                 border_1;
                                 border_color: $(cx.theme().border);
                                 bg: background;
-                                text_color: $(cx.theme().foreground);
+                                text_color: $(if selected { cx.theme().accent_foreground } else { cx.theme().secondary_foreground });
                                 font_family: $(cx.theme().font_family.clone());
                                 text_size: $(theme::content_font_size(cx));
                                 line_height: $(gpui_kit::relative(1.));

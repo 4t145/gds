@@ -33,7 +33,7 @@ fn initial_connection_is_visible_even_with_an_expanded_composer(cx: &mut TestApp
             assert!(window.find("server-connection-target").visible());
             assert!(window.try_find("empty-conversation-message").is_none());
             let bounds = transition.bounds();
-            let composer = window.find("composer-panel").bounds();
+            let composer = window.find("conversation-control-panel").bounds();
             assert!(bounds.size.height > px(0.));
             assert!(bounds.bottom() <= composer.top());
             assert_eq!(bounds.left(), composer.left());

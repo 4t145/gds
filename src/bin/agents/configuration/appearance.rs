@@ -15,6 +15,7 @@ pub struct Appearance {
     pub content_font_size: Option<f32>,
     pub content_line_height: Option<f32>,
     pub content_opacity: Option<f32>,
+    pub sidebar_opacity: Option<f32>,
     pub composer_enter_behavior: ComposerEnterBehavior,
     /// None starts new conversations with the most recently used Agent.
     pub default_agent: Option<String>,
@@ -65,8 +66,8 @@ pub enum ThemeMode {
 pub enum ValidationError {
     #[error("{0} must be finite and greater than zero")]
     Positive(&'static str),
-    #[error("content_opacity must be finite and between 0 and 1")]
-    Opacity,
+    #[error("{0} must be finite and between 0 and 1")]
+    Opacity(&'static str),
     #[error("{0} must not contain an empty font name")]
     Font(&'static str),
     #[error("theme_file must not be empty")]
@@ -85,11 +86,13 @@ impl Appearance {
                 positive(name, value)?;
             }
         }
-        if self
-            .content_opacity
-            .is_some_and(|v| !v.is_finite() || !(0. ..=1.).contains(&v))
-        {
-            return Err(ValidationError::Opacity);
+        for (name, value) in [
+            ("content_opacity", self.content_opacity),
+            ("sidebar_opacity", self.sidebar_opacity),
+        ] {
+            if value.is_some_and(|v| !v.is_finite() || !(0. ..=1.).contains(&v)) {
+                return Err(ValidationError::Opacity(name));
+            }
         }
         for (name, value) in [
             ("ui_font_family", self.ui_font_family.as_deref()),

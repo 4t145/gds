@@ -1,6 +1,8 @@
 //! Suite settings presentation: rows, numeric ranges and keyboard-accessible sliders.
 //! Preference models, defaults and persistence belong to their applications.
 
+pub mod form;
+
 use crate::typography;
 use gds_uim::el;
 use gpui_kit::component::{
@@ -140,6 +142,7 @@ impl NumberControl {
         el! {
             .div {
                 # id;
+                test_support;
                 track_focus: $(&self.focus);
                 tab_index: $(if disabled { -1 } else { 0 }); tab_stop: $(!disabled);
                 flex; items_center; gap: CONTROL_GAP.px; w_full;

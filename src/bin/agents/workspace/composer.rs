@@ -6,6 +6,7 @@ pub(super) const COMPOSER_SIDE_PADDING: f32 = 4.;
 pub(super) const COMPOSER_TOOLBAR_HEIGHT: f32 = 24.;
 pub(super) const COMPOSER_BOTTOM_PADDING: f32 = 2.;
 pub(super) const COMPOSER_CONTROL_INSET: f32 = 4.;
+const CONTROL_TOOLBAR_HEIGHT: f32 = 36.;
 
 pub(super) use crate::configuration::appearance::ComposerEnterBehavior as Mode;
 
@@ -43,7 +44,7 @@ pub(super) fn bind_keys(cx: &mut App) {
         KeyBinding::new(
             "alt-shift-escape",
             ExpandMessageEditor,
-            Some("BasWorkspace > BasComposer > Input"),
+            Some("BasWorkspace"),
         ),
     ]);
     if cfg!(target_os = "macos") {
@@ -126,6 +127,20 @@ impl Workspace {
             Mode::Newline if cfg!(target_os = "macos") => "⌘ Enter",
             Mode::Newline => "Ctrl+Enter",
         }
+    }
+
+    pub(super) fn composer_shortcut_hint(&self) -> gds::ui::ShortcutHint {
+        let label = if self.working() {
+            crate::i18n::tr!("composer-queue-hint")
+        } else {
+            crate::i18n::tr!("composer-send-hint")
+        };
+        let key = match self.composer.mode {
+            Mode::Send => "enter",
+            Mode::Newline if cfg!(target_os = "macos") => "cmd-enter",
+            Mode::Newline => "ctrl-enter",
+        };
+        gds::ui::ShortcutHint::binding(label, KeyBinding::new(key, SendComposer, None))
     }
 
     pub(super) fn composer_newline_shortcut(&self) -> &'static str {

@@ -194,11 +194,11 @@ impl Workspace {
                     } else {
                         IconName::Minimize2
             })).icon_button {
-                hoverable_tooltip: $(shortcuts::tooltip(if self.window.compact {
+                tooltip_with_shortcut: $(if self.window.compact {
                             crate::i18n::tr!("window-expand")
                         } else {
                             crate::i18n::tr!("window-compact")
-                        }, ToggleMode));
+                        }), $(shortcuts::shortcut(ToggleMode));
                 on_click: $(cx.listener(Self::on_layout_toggle_mode));
             }
         }
@@ -229,6 +229,7 @@ impl Workspace {
                 on_action: $(cx.listener(Self::on_layout_next_thread));
                 on_action: $(cx.listener(Self::on_layout_previous_thread));
                 on_action: $(cx.listener(Self::on_layout_focus_composer));
+                on_action: $(cx.listener(Self::on_composer_expand_action));
                 on_action: $(cx.listener(Self::on_layout_focus_search));
                 on_action: $(cx.listener(Self::on_layout_toggle_sidebar_action));
                 on_action: $(cx.listener(Self::on_layout_toggle_mode_action));
@@ -249,7 +250,7 @@ impl Workspace {
                     } else {
                         self.render_window(window, cx)
                 }),
-                ..$(self.inline_context_menu()),
+                ..$(self.inline_context_menu(window)),
                 ..$(self.inline_preview()),
             ]
         }
@@ -431,7 +432,7 @@ impl Workspace {
                 flex_shrink_0;
             } [
                 ("toggle-output", $(if self.window.output_open { IconName::ChevronDown } else { IconName::ChevronRight })).icon_button {
-                    hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("conversation-toggle"), ToggleOutput));
+                    tooltip_with_shortcut: $(crate::i18n::tr!("conversation-toggle")), $(shortcuts::shortcut(ToggleOutput));
                     on_click: $(cx.listener(Self::on_layout_toggle_output));
                 },
                 $(self.agent_button(cx)),
@@ -443,7 +444,7 @@ impl Workspace {
                 $(self.application_button(cx)),
                 $(self.workspace_button(cx)),
                 ("new-session", IconName::Plus).icon_button {
-                    hoverable_tooltip: $(shortcuts::tooltip(crate::i18n::tr!("session-new"), NewSession));
+                    tooltip_with_shortcut: $(crate::i18n::tr!("session-new")), $(shortcuts::shortcut(NewSession));
                     on_click: $(cx.listener(Self::on_layout_new_session));
                 },
                 $(self.mode_button(cx)),
@@ -476,12 +477,9 @@ impl Workspace {
             .into_any_element();
         let workspace = frame.workspace(sidebar, content, cx);
         let server = self.server_status_footer(cx);
-        let status = self.activity_label().unwrap_or_else(|| {
-            self.current()
-                .map(title)
-                .unwrap_or_else(|| self.draft_title())
-        });
-        let status = caption(status, cx).into_any_element();
+        let status = div()
+            .children(self.activity_label().map(|label| caption(label, cx)))
+            .into_any_element();
         let footer = frame.footer(server, status, div().into_any_element(), cx);
         div()
             .id("window-mode")

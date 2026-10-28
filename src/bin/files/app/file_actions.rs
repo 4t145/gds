@@ -451,6 +451,7 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PopupMenu {
+        let menu = gds::ui::menu::popup(menu);
         let Some(target) = DirectoryTarget::capture(self, path) else {
             return menu;
         };
@@ -465,6 +466,7 @@ impl Browser {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> PopupMenu {
+        let menu = gds::ui::menu::popup(menu);
         if self.settings_open || self.collection.is_some() {
             return menu;
         }

@@ -1,6 +1,6 @@
 # GDS 共享主题与材质 · 概念设计 0.2
 
-状态：设计提案；以下描述支持目标与实现边界，不代表已经完成适配。视觉语义与代码可供 GDS 应用复用，但配置当前只作用于本应用；跨应用统一配置另行设计。视觉语义见 [视觉语言](README.md)。本文仅对应 **设置 → 外观**；完整设置中心的导航、页面组织与作用域见 [设置中心](../settings/README.md)，不能把主题页当成整个设置中心。
+本文记录当前共享主题的配色分工、来源适配与能力边界。视觉语义与代码供 GDS 应用复用，配置分别保存于各应用；跨应用统一配置另行设计。视觉语义见 [视觉语言](README.md)。本文对应 **设置 → 外观**；完整设置中心的导航、页面组织与作用域见 [设置中心](../settings/README.md)。
 
 ## 1. 产品契约
 
@@ -83,9 +83,9 @@ $XDG_DATA_HOME/color-schemes/DankMatugenDark.colors
 
 这不影响首期交付“qtct 调色板导入”和“DMS 已生成配色跟随”，但不能将它们宣传成“兼容所有 Qt / DMS 主题”。
 
-## 4. 语义映射示意
+## 4. 固定配色分工
 
-以下为映射原则；完整 token 定义及 Kit 桥接在实现时集中维护。
+Files、Agents 与公共组件共用 `src/theme/palette.rs` 的角色快照和 Kit 桥接。DMS / Matugen、Qt 和内置来源只提供角色的值；应用不另设配色表。常规组件读取 Kit 的语义字段，自绘面板及状态层通过 `gds::theme::Colors::current(cx)` 读取同一快照。主题热更新一次替换整份快照，透明度设置只改变材质 alpha。
 
 | GDS 语义 | Qt 输入 | DMS / Material 输入 | 说明 |
 | --- | --- | --- | --- |
@@ -93,15 +93,29 @@ $XDG_DATA_HOME/color-schemes/DankMatugenDark.colors
 | `surface.content` | Base | surface | 文件内容 / 输入内容底色 |
 | `surface.sidebar` | Window / 派生层级 | surface_container_low | 缺失时回到 surface，并用分隔线保证层级 |
 | `surface.control` | Button | surface_container | 普通控件背景 |
+| `surface.panel` | Button / ButtonText | surface_container_high / on_surface | Agents 遥控面板等抬升表面；对应 `Colors.panel` / `panel_foreground` |
+| `surface.overlay` | ToolTipBase / ToolTipText | surface_container_high / on_surface | 菜单、提示、拖动预览与弹出层；对应 Kit `popover` / `popover_foreground`，保持不透明 |
 | `text.primary` | WindowText / Text | on_surface | 按所在表面选择成对的前景色 |
 | `text.secondary` | 由有效前景派生 | on_surface_variant | 检查可读性，不机械降低全控件 alpha |
 | `accent` | Accent，缺失则 Highlight | primary | 强调，不等同所有选中背景 |
 | `selection.bg` / `fg` | Highlight / HighlightedText | primary_container / on_primary_container | 成对导入，不能强制白字 |
 | `border.subtle` | Mid / 派生 | outline_variant | 优先保留表面区分度 |
+| `border.control` | Mid / 派生 | outline | 输入框等需要辨认的边界；对应 Kit `input`，不替代细分隔线 |
+| `focus` / `progress` | Highlight | primary | 焦点环、插入光标、进度和活动标记；不作为普通面板的染色 |
+| `shadow` | 公共阴影色 | shadow | 仅用于投影；玻璃面板的边缘高光取自自身前景色 |
 | `status.error` | 公共状态色补全 | error / on_error | Qt 标准角色没有完整业务状态语义 |
+| `status.success` / `status.warning` | 公共状态色补全 | 公共状态色补全 | 成功、警告使用套件的明暗成对默认值；不把任意 secondary / tertiary 色解释成绿或黄 |
 | disabled / inactive | 对应 ColorGroup | 基于语义角色生成 | 非活动窗口不等于禁用窗口 |
 
-缺失角色由公共映射补齐，而不是让各应用自行挑颜色。外部主题的布局、圆角和交互不会透传；这样换主题不需要重新学习应用。
+容器色与文字色成对使用。Files 的页签、文件行、卷行及容量文字，Agents 的会话、命令候选、附件、队列编辑项和书签标记，在选中时使用 `primary_container` / `on_primary_container`，不强制白字，也不保留选中前的次级文字色。正文用 `on_surface`，侧栏正文用所在来源的侧栏前景，分区标题、路径和辅助动作使用不透明的 `on_surface_variant`。
+
+现有文本框和选择框采用描边式设计，统一通过 `ui::field::input` / `select` 构造：内部使用 `surface.content` 和正文前景，外框使用 `outline`，不从描边色推导底色。显式无外观的编辑器和嵌入式搜索框继续继承宿主表面。
+
+中性悬停层统一取所在表面前景的 8%，按下层取 12%；有底色的按钮在主题层与各自的成对前景混合。拖放和框选填充统一取 `primary` 的 12%，轮廓使用 `primary`。持久选中使用完整的容器 / 前景配对，不能用按下色代替。公共 `ui::button::Button` 负责幽灵按钮的中性状态，避免 Kit 再自行调亮、调暗或在悬停时换成选中文字色；Files 与 Agents 不各自定义一组透明度。
+
+玻璃遥控面板只取 `surface.panel`，采用统一半透明材质、圆角、边缘和投影；不额外混入白色、主色或大面积渐变。主内容和侧栏分别保持用户设置的不透明度，文字和图标不跟随表面透明度变淡。语法高亮、终端 ANSI 与内容图片沿用各自的内容配色，不用 UI 角色覆盖。
+
+缺失角色由公共映射补齐：DMS 的 control 缺失时取导入的 content，panel 缺失时取 control，outline 缺失时取 subtle border；Qt 的 panel 使用 Button / ButtonText，overlay 继续使用 ToolTipBase / ToolTipText。外部来源缺失层级时不掺入内置主题的表面色。外部主题的布局、圆角和交互不会透传。
 
 ## 5. 来源选择、覆盖与动态更新
 
@@ -128,7 +142,7 @@ Files 的外观配置保存在 `$XDG_CONFIG_HOME/gds/files/settings.toml` 的 ap
 | 桌面背板模糊 | 自动请求的可选增强 | GPUI `Blurred` 不保证支持；不能把浏览器 CSS 模糊当成 Linux 实现证据 |
 | 菜单与对话框 | 默认不透明 | 尤其保障冲突、权限和危险操作的可读性 |
 
-原生默认值由 [`src/design.rs`](../../src/design.rs) 统一定义：主内容与侧栏均为 100% 不透明，顶栏和底栏分别沿用所在列的材质。窗口默认支持 alpha，调整不透明度即可即时生效，不强制启用模糊。用户可手动从主内容 96%、侧栏 88% 等数值开始调节；历史原型的示意值不是原生默认值，也不是读取 DMS 透明度的结果。窗口不得通过整体 opacity 把文字也变淡。Agents 的“自动”背景跟随公共窗口默认值，已有显式背景偏好保持优先。
+原生默认值由 [`src/design.rs`](../../src/design.rs) 统一定义：主界面背景默认 85% 不透明，侧边栏背景默认 50%，顶栏和底栏分别沿用所在列的材质。所有应用均在外观设置中提供两个独立的百分比滑块，修改立即应用并保存，恢复默认只重置所选表面。窗口默认支持 alpha，调整不透明度即可即时生效，不强制启用模糊；不透明度也不是读取 DMS 透明度的结果。窗口不得通过整体 opacity 把文字也变淡。Agents 的“自动”背景跟随公共窗口默认值，已有显式背景偏好保持优先。
 
 调研时 GPUI 上游 Wayland 实现使用可选 KDE blur manager，X11 路径主要处理透明。即使某个扩展协议已存在，也不代表实际选用的 GPUI 版本或合成器已支持。实现时在目标 NixOS / Wayland 环境验证，不承诺 GNOME、KWin、Hyprland、Sway 与 X11 的效果相同。
 

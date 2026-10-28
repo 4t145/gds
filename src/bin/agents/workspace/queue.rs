@@ -416,6 +416,7 @@ impl Workspace {
                     py_1;
                     when: $(editing == Some(index)), {
                         bg: $(cx.theme().accent);
+                        text_color: $(cx.theme().accent_foreground);
                     };
                 } [
                     .div {
@@ -456,7 +457,8 @@ impl Workspace {
                         rounded_md;
                         border_1;
                         border_color: $(cx.theme().border);
-                        bg: $(cx.theme().muted.opacity(0.35));
+                        bg: $(cx.theme().secondary);
+                        text_color: $(cx.theme().secondary_foreground);
                     } [
                         ..unknown,
                         $(header),

@@ -5,14 +5,15 @@ use crate::ui;
 use gpui_kit::{Entity, assets::IconName, component::slider::SliderValue};
 
 impl Field {
-    pub(super) const NUMBERS: [Self; 4] = [
+    pub(super) const NUMBERS: [Self; 5] = [
         Self::UiSize,
         Self::ContentSize,
         Self::LineHeight,
         Self::Opacity,
+        Self::SidebarOpacity,
     ];
     fn scale(self) -> f32 {
-        if matches!(self, Self::Opacity) {
+        if matches!(self, Self::Opacity | Self::SidebarOpacity) {
             100.
         } else {
             1.
@@ -27,6 +28,7 @@ impl AppearancePage {
             Field::ContentSize => &self.form.content_size,
             Field::LineHeight => &self.form.line_height,
             Field::Opacity => &self.form.opacity,
+            Field::SidebarOpacity => &self.form.sidebar_opacity,
             _ => unreachable!("only numeric preferences own sliders"),
         }
     }
@@ -37,6 +39,7 @@ impl AppearancePage {
             Field::ContentSize => &mut self.form.content_size,
             Field::LineHeight => &mut self.form.line_height,
             Field::Opacity => &mut self.form.opacity,
+            Field::SidebarOpacity => &mut self.form.sidebar_opacity,
             _ => unreachable!("only numeric preferences own sliders"),
         }
     }
@@ -47,6 +50,7 @@ impl AppearancePage {
             Field::ContentSize => f32::from(theme::content_font_size(cx)),
             Field::LineHeight => theme::content_line_height(cx),
             Field::Opacity => cx.global::<theme::Appearance>().content_opacity,
+            Field::SidebarOpacity => cx.global::<theme::Appearance>().sidebar_opacity,
             _ => unreachable!("only numeric preferences own sliders"),
         }
     }
@@ -93,7 +97,7 @@ impl AppearancePage {
             .value
             .unwrap_or_else(|| Self::effective_number(field, cx));
         let label = match field {
-            Field::Opacity => format!("{:.0}%", value * field.scale()),
+            Field::Opacity | Field::SidebarOpacity => format!("{:.0}%", value * field.scale()),
             Field::LineHeight => format!("{value:.1}"),
             _ => format!("{value:.0} px"),
         };
@@ -119,9 +123,11 @@ impl AppearancePage {
         match field {
             Field::UiFont => named(&self.form.ui_font),
             Field::MonoFont => named(&self.form.mono_font),
-            Field::UiSize | Field::ContentSize | Field::LineHeight | Field::Opacity => {
-                self.setting_number(field).value.is_some()
-            }
+            Field::UiSize
+            | Field::ContentSize
+            | Field::LineHeight
+            | Field::Opacity
+            | Field::SidebarOpacity => self.setting_number(field).value.is_some(),
             Field::Fallbacks => !self.form.fallbacks.read(cx).value().is_empty(),
             Field::Source => self
                 .form
@@ -168,9 +174,11 @@ impl AppearancePage {
             Field::MonoFont => self.form.mono_font.update(cx, |select, cx| {
                 select.set_selected_value(&form::FontChoice::Default, window, cx)
             }),
-            Field::UiSize | Field::ContentSize | Field::LineHeight | Field::Opacity => {
-                self.setting_number_mut(field).value = None
-            }
+            Field::UiSize
+            | Field::ContentSize
+            | Field::LineHeight
+            | Field::Opacity
+            | Field::SidebarOpacity => self.setting_number_mut(field).value = None,
             Field::Fallbacks => self
                 .form
                 .fallbacks
@@ -196,8 +204,8 @@ impl AppearancePage {
 
     pub(super) fn row(&self, field: Field, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         let controls = match field {
-            Field::UiSize | Field::ContentSize | Field::LineHeight | Field::Opacity => self.number_slider(field, cx),
-            _ => gds_uim::el! { .div { flex_1; min_w_0; flex; justify_end } [$(self.control(field))] }.into_any_element(),
+            Field::UiSize | Field::ContentSize | Field::LineHeight | Field::Opacity | Field::SidebarOpacity => self.number_slider(field, cx),
+            _ => gds_uim::el! { .div { flex_1; min_w_0; flex; justify_end } [$(self.control(field, cx))] }.into_any_element(),
         };
         let reset = self.overridden(field, cx).then(|| {
             ui::icon_action(

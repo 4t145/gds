@@ -16,11 +16,11 @@ impl Workspace {
                     } else {
                         IconName::Maximize2
                 }), cx).message_actions::action_button {
-                hoverable_tooltip: $(shortcuts::tooltip(if self.composer.expanded {
+                tooltip_with_shortcut: $(if self.composer.expanded {
                             crate::i18n::tr!("composer-collapse")
                         } else {
                             crate::i18n::tr!("composer-expand")
-                        }, ExpandMessageEditor));
+                        }), $(shortcuts::shortcut(ExpandMessageEditor));
                 on_click: $(cx.listener(Self::on_composer_toggle_expansion));
             }
         }
@@ -141,9 +141,9 @@ impl Workspace {
             .is_some_and(|id| self.sessions.pending.cancelling.contains(&id));
         let can_send = self.can_send(cx);
         let submit_hint = if self.working() || cancelling {
-            crate::i18n::tr!("action-stop").into()
+            gds::ui::ShortcutHint::plain(crate::i18n::tr!("action-stop"))
         } else {
-            self.send_hint(cx)
+            self.composer_shortcut_hint()
         };
         let submit = if self.working() || cancelling {
             gds_uim::el! {
@@ -162,6 +162,7 @@ impl Workspace {
         } else {
             gds_uim::el! {
                 ("send-message").Button::new {
+                    shortcut: $(gds::ui::Shortcut::new(Box::new(SendComposer), Some("BasWorkspace > BasComposer > Input")));
                     primary;
                     when: $(!can_send), {
                         ghost;
@@ -180,47 +181,29 @@ impl Workspace {
             .div {
                 id: "composer-panel";
                 test_support;
+                w_full;
+                min_w_0;
                 flex;
                 flex_col;
+                flex_shrink_0;
                 when: fills_thread, {
                     flex_1;
                     min_h_0;
+                };
+                when: $(self.window.compact), {
+                    px: COMPOSER_SIDE_PADDING.px;
+                    pb: COMPOSER_BOTTOM_PADDING.px;
                 };
             }
         }
-        .drag_over::<gpui_kit::ExternalPaths>(|style, _, _, cx| {
-            style.bg(cx.theme().primary.opacity(0.12))
-        })
+        .drag_over::<gpui_kit::ExternalPaths>(|style, _, _, cx| style.bg(cx.theme().drop_target))
         .on_drop(cx.listener(Self::on_composer_drop));
         gds_uim::el! {
-            .div {
-                flex_shrink_0;
-                w_full;
-                when: fills_thread, {
-                    flex_1;
-                    min_h_0;
-                    flex;
-                    flex_col;
-                };
-                when: $(self.window.compact), {
-                    px: $(px(COMPOSER_SIDE_PADDING));
-                    pb: $(px(COMPOSER_BOTTOM_PADDING));
-                };
-                when: $(!self.window.compact), {
-                    pb: $(px(COMPOSER_SIDE_PADDING));
-                };
-            } [
-                $(panel) {
-                    when: $(!self.window.compact), {
-                        border_t_1;
-                        border_color: $(cx.theme().border);
-                    };
-                } [
-                    $(self.render_commands(cx)),
-                    ..$(self.render_composer_feedback(cx)),
-                    $(self.render_composer_editor(fills_thread, composition_locked, expand_top, cx)),
-                    $(self.render_composer_toolbar(submit, submit_hint, cx)),
-                ],
+            $(panel) [
+                $(self.render_commands(cx)),
+                ..$(self.render_composer_feedback(cx)),
+                $(self.render_composer_editor(fills_thread, composition_locked, expand_top, cx)),
+                $(self.render_composer_toolbar(submit, submit_hint, cx)),
             ]
         }
         .into_any_element()
@@ -282,12 +265,16 @@ impl Workspace {
                 capture_action: $(cx.listener(Self::on_composer_escape_action));
                 flex;
                 items_start;
-                pr: $(px(COMPOSER_CONTROL_INSET + layout::ICON_BUTTON_SIZE + COMPOSER_CONTROL_GAP));
+                pr: COMPOSER_CONTROL_INSET.px;
+                when: $(self.window.compact), {
+                    pr: $(px(COMPOSER_CONTROL_INSET + layout::ICON_BUTTON_SIZE + COMPOSER_CONTROL_GAP));
+                };
                 when: fills_thread, {
                     flex_1;
                     min_h_0;
                 };
             } [
+                ("composer-focus", $(shortcuts::shortcut(FocusComposer))).gds::ui::keytips::Anchor::new,
                 .div {
                     relative;
                     flex;
@@ -301,13 +288,13 @@ impl Workspace {
                     $(editor),
                     $(self.render_attachment_chips(cx)),
                 ],
-                .div {
+                ..$(self.window.compact.then(|| gds_uim::el! { .div {
                     absolute;
                     top: $(expand_top.max(px(0.)));
                     right: $(px(COMPOSER_CONTROL_INSET));
                 } [
                     $(self.composer_expansion_button(cx)),
-                ],
+                ]})),
             ]
         }
         .into_any_element()
@@ -316,7 +303,7 @@ impl Workspace {
     fn render_composer_toolbar(
         &self,
         submit: Button,
-        submit_hint: String,
+        submit_hint: gds::ui::ShortcutHint,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         gds_uim::el! {
@@ -331,6 +318,13 @@ impl Workspace {
                 pr: $(px(COMPOSER_CONTROL_INSET));
                 h: $(px(COMPOSER_TOOLBAR_HEIGHT));
                 flex_shrink_0;
+                when: $(!self.window.compact), {
+                    h: CONTROL_TOOLBAR_HEIGHT.px;
+                    mt_2;
+                    pt_1;
+                    border_t_1;
+                    border_color: $(cx.theme().border);
+                };
             } [
                 ..$(self.render_usage(cx)),
                 $(self.attachment_button(cx)) {
@@ -351,28 +345,36 @@ impl Workspace {
                 ..$((!self.window.compact && self.selected.authentication.required.is_some())
                     .then(|| self.authentication_button(cx))),
                 ..$((self.working() && !self.composer.input.read(cx).value().trim().is_empty())
-                    .then(|| crate::ui::tooltip::bounded(
-                            "queue-message-hint",
-                            gds_uim::el! {("queue-message").Button::new {
+                    .then(|| gds_uim::el! { .div {
+                            id: "queue-message-hint";
+                            hoverable_tooltip: $(self.composer_shortcut_hint().builder());
+                        } [ ("queue-message").Button::new {
+                                    shortcut: $(gds::ui::Shortcut::new(Box::new(SendComposer), Some("BasWorkspace > BasComposer > Input")));
                                     ghost;
                                     xsmall;
                                     icon: $(IconName::Send);
                                     disabled: $(!self.can_send(cx));
                                     on_click: $(cx.listener(Self::on_composer_send));
-                            }},
-                            self.send_hint(cx),
-                ))),
-                $(crate::ui::tooltip::bounded(
-                        "submit-hint",
-                        gds_uim::el! {$(submit) {
+                            }
+                        ]})),
+                .div {
+                    id: "submit-hint";
+                    hoverable_tooltip: $(submit_hint.builder());
+                } [
+                        $(submit) {
                                 xsmall;
                                 w: $(px(layout::ICON_BUTTON_SIZE));
                                 h: $(px(layout::ICON_BUTTON_SIZE));
                                 p_0;
                                 flex_shrink_0;
-                        }},
-                        submit_hint,
-                )),
+                                when: $(!self.window.compact), {
+                                    rounded_full;
+                                };
+                                when: $(!self.window.compact && !self.can_send(cx)), {
+                                    bg: $(gds::theme::Colors::current(cx).hover());
+                                };
+                        },
+                ],
             ]
         }
         .into_any_element()
@@ -402,7 +404,7 @@ impl Workspace {
         self.drop_attachments(paths.paths().to_vec(), window, cx);
     }
 
-    fn on_composer_expand_action(
+    pub(in crate::workspace) fn on_composer_expand_action(
         &mut self,
         _: &composer::ExpandMessageEditor,
         window: &mut Window,

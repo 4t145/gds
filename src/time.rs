@@ -19,13 +19,17 @@ pub use presentation::{Presentation, precise};
 pub use timestamp::Timestamp;
 
 /// How shared timestamp elements present a value.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize, crate::ConfigEditor,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Format {
     /// Exact local date and time, e.g. `2026-10-25 01:54`.
+    #[setting(label = "form-time-absolute")]
     Absolute,
     /// Localized distance from the current time, e.g. `3 minutes ago`.
     #[default]
+    #[setting(label = "form-time-relative")]
     Relative,
 }
 

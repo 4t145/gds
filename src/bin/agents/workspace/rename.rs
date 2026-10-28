@@ -263,7 +263,7 @@ impl Workspace {
                 on_key_down: $(cx.listener(Self::on_rename_key_down));
             } [
                 $(crate::ui::input::placeholder(&self.renaming.input,
-                        Input::new(&self.renaming.input).id("rename-title-input").small().w_full()
+                        gds::ui::field::input(&self.renaming.input, cx).id("rename-title-input").small().w_full()
                         .min_h(px(layout::ICON_BUTTON_SIZE)).max_h(px(layout::ICON_BUTTON_SIZE)))),
             ]
         }

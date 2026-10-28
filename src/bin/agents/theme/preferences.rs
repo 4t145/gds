@@ -36,7 +36,9 @@ pub(super) fn appearance(preferences: &Preferences) -> theme::Appearance {
         content_opacity: preferences
             .content_opacity
             .unwrap_or(gds::design::CONTENT_OPACITY),
-        ..Default::default()
+        sidebar_opacity: preferences
+            .sidebar_opacity
+            .unwrap_or(gds::design::SIDEBAR_OPACITY),
     }
 }
 

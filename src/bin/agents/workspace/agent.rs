@@ -3,6 +3,8 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{Bounds, canvas, component::badge::Badge};
 use std::{cell::Cell, rc::Rc};
 
+mod options;
+
 pub(super) const TOOLBAR_AGENT_ICON_SIZE: f32 = crate::ui::SMALL_ICON;
 
 impl Workspace {
@@ -293,19 +295,27 @@ impl Workspace {
                         .map(|value| value.name.clone())
                         .unwrap_or_else(|| current.to_string());
                     let hint = crate::i18n::tr!("option-choose", name = option.name.as_str());
+                    let hint = options::description(option, &hint);
+                    let button = match options::icon(option) {
+                        Some(icon) => Button::new(id).control_icon(icon),
+                        None => Button::new(id),
+                    };
                     // A first-party label keeps text size independent of button geometry.
                     let control = crate::ui::tooltip::bounded(
                         SharedString::from(format!("config-hint-{}", option.id)),
                         self.menu_button(
                             gds_uim::el! {
-                                (id).Button::new {
+                                $(button) {
                                     flex_shrink_0;
                                     disabled: $(self.sessions.pending.configuring.contains(&session));
                                     accessibility_label: $(name.clone());
                                     ghost;
-                                    xsmall;
-                                    max_w: 130.0.px;
-                                    icon: IconName::ChevronDown;
+                                    small;
+                                    h: $(px(layout::ICON_BUTTON_SIZE));
+                                    px_2;
+                                    gap_1;
+                                    max_w: 160.0.px;
+                                    dropdown_caret: true;
                                 } [
                                     .div {
                                         id: $(SharedString::from(format!("config-label-{}", option.id)));
@@ -353,7 +363,28 @@ impl Workspace {
                     };
                 }
                 acp::SessionConfigKind::Boolean(boolean) => {
-                    let hint = config_option_hint(option);
+                    let hint = options::description(option, &config_option_hint(option));
+                    if let Some(icon) = options::toggle_icon(option) {
+                        let checked = boolean.current_value;
+                        let control = crate::ui::icon_button(id, icon)
+                            .selected(checked)
+                            .toggled(checked)
+                            .accessibility_label(option.name.clone())
+                            .disabled(self.sessions.pending.configuring.contains(&session))
+                            .tooltip(hint)
+                            .on_click(move |_, window, cx| {
+                                let request = acp::SetSessionConfigOptionRequest::new(
+                                    session.to_string(),
+                                    config_id.clone(),
+                                    !checked,
+                                );
+                                let _ = view.update(cx, |this, cx| {
+                                    this.on_agent_boolean_config(request, window, cx);
+                                });
+                            });
+                        row = row.child(control);
+                        continue;
+                    }
                     let label = gds_uim::el! {
                         .div {
                             id: $(SharedString::from(format!("config-label-{}", option.id)));

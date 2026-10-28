@@ -128,14 +128,15 @@ pub(super) fn hint(label: &str, action: &dyn Action, window: &Window) -> String 
     gds::ui::Shortcut::new(action.boxed_clone(), Some("BasWorkspace")).hint(label, window)
 }
 
+pub(super) fn shortcut(action: impl Action) -> gds::ui::Shortcut {
+    gds::ui::Shortcut::new(Box::new(action), Some("BasWorkspace"))
+}
+
 pub(super) fn tooltip(
     label: &'static str,
     action: impl Action,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    gds::ui::shortcut_tooltip(
-        label,
-        gds::ui::Shortcut::new(Box::new(action), Some("BasWorkspace")),
-    )
+    gds::ui::shortcut_tooltip(label, shortcut(action))
 }
 
 impl Workspace {

@@ -104,7 +104,10 @@ fn parse_qtct(ini: &Ini, mode: Mode) -> Result<Palette, Error> {
     palette.sidebar_foreground = active[WINDOW_TEXT];
     palette.surface = active[BUTTON];
     palette.surface_foreground = active[BUTTON_TEXT];
+    palette.panel = palette.surface;
+    palette.panel_foreground = palette.surface_foreground;
     palette.border = active[MID];
+    palette.outline = palette.border;
     // HighlightedText is paired with Highlight, not an independently supplied
     // Qt 6 Accent; keep this pair together for filled controls.
     palette.primary = active[HIGHLIGHT];
@@ -165,6 +168,9 @@ fn parse_kde(ini: &Ini, mode: Mode) -> Result<Palette, Error> {
         optional(ini, "Colors:View", "ForegroundInactive")?.unwrap_or(palette.foreground);
     palette.border =
         optional(ini, "Colors:Window", "ForegroundInactive")?.unwrap_or(palette.muted_foreground);
+    palette.outline = palette.border;
+    palette.panel = palette.surface;
+    palette.panel_foreground = palette.surface_foreground;
     palette.tooltip =
         optional(ini, "Colors:Tooltip", "BackgroundNormal")?.unwrap_or(palette.sidebar);
     palette.tooltip_foreground =

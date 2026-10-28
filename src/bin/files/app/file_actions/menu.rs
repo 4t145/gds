@@ -1,16 +1,13 @@
 use std::sync::Arc;
 
 use crate::actions::Command;
-use gds::{desktop, i18n, notifications, ui::ShortcutBadge};
+use gds::{desktop, i18n, notifications, ui::menu};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::{prelude::*, *};
 
 use super::{Browser, DirectoryTarget, Selection};
-
-const MENU_CONTENT_MIN_WIDTH: f32 = 260.;
-const MENU_SHORTCUT_GAP: f32 = 24.;
 
 #[derive(Clone, Copy)]
 enum MenuAction {
@@ -73,37 +70,13 @@ impl MenuItems {
     }
 
     fn item(&self, action: MenuAction, label: SharedString) -> PopupMenuItem {
-        let render = MenuRow {
-            label,
-            command: action.command(),
-        }
-        .builder();
+        let render = menu::row(label, action.command().map(Into::into));
         let on_click = Browser::entry_action(self.browser.clone(), self.selection.clone(), action);
         let icon = action.icon();
         el! {
             render.PopupMenuItem::element {
                 on_click: on_click;
                 @if (let Some(icon) = icon) icon: icon; @end;
-            }
-        }
-    }
-}
-
-struct MenuRow {
-    label: SharedString,
-    command: Option<Command>,
-}
-
-impl MenuRow {
-    fn builder(self) -> impl Fn(&mut Window, &mut App) -> Div {
-        move |_, _| {
-            let label = self.label.clone();
-            let command = self.command;
-            el! {
-                .div { flex; items_center; w_full; min_w: MENU_CONTENT_MIN_WIDTH.px; gap: MENU_SHORTCUT_GAP.px } [
-                    .div { flex_1; min_w_0; truncate } [label],
-                    @if (let Some(command) = command) command.ShortcutBadge::new, @end,
-                ]
             }
         }
     }
@@ -151,11 +124,10 @@ impl DirectoryAction {
         target: Arc<DirectoryTarget>,
         cx: &App,
     ) -> PopupMenuItem {
-        let render = MenuRow {
-            label: i18n::text(self.label_id(), cx),
-            command: self.command(),
-        }
-        .builder();
+        let render = menu::row(
+            i18n::text(self.label_id(), cx),
+            self.command().map(Into::into),
+        );
         let on_click = Browser::directory_action(view, target, self);
         let icon = self.icon();
         el! {

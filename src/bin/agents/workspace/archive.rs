@@ -69,10 +69,15 @@ impl Workspace {
         } else {
             crate::i18n::tr!("session-archive")
         };
+        let button = layout::icon_button(SharedString::from(format!("{location}-{id}")), icon);
+        let button = if self.selected.id == Some(id) {
+            button.tooltip_with_shortcut(label, shortcuts::shortcut(shortcuts::ArchiveThread))
+        } else {
+            button.tooltip(label)
+        };
         el! {
-            ($(SharedString::from(format!("{location}-{id}"))), icon).layout::icon_button {
+            $(button) {
                 accessibility_label: label;
-                hoverable_tooltip: $(shortcuts::tooltip(label, shortcuts::ArchiveThread));
                 disabled: $(!self.backend.connected
                     || self.sessions.pending.archiving.contains(&id)
                     || self.sessions.pending.deleting.contains(&id));

@@ -7,6 +7,7 @@ const BADGE_INSET: f32 = 2.;
 
 impl Workspace {
     pub(in crate::workspace) fn render_sidebar_rail(&self, cx: &mut Context<Self>) -> AnyElement {
+        let cycle = self.thread_cycle_targets(cx);
         let actions = self.sidebar_actions(true, cx).into_iter().map(|action| {
             div()
                 .w_full()
@@ -33,7 +34,7 @@ impl Workspace {
         let draft = (self.navigation.view == View::Workspaces && self.selected.id.is_none())
             .then(|| self.rail_draft(cx));
         let empty = (sessions.is_empty() && draft.is_none()).then(|| {
-            Self::rail_item(
+            self.rail_item(
                 "rail-empty".into(),
                 false,
                 crate::i18n::tr!("session-no-results").into(),
@@ -74,14 +75,14 @@ impl Workspace {
                     .children(
                         sessions
                             .into_iter()
-                            .map(|session| self.rail_session(session, cx)),
+                            .map(|session| self.rail_session(session, &cycle, cx)),
                     )
                     .children(empty),
             )
             .into_any_element()
     }
 
-    fn rail_item(id: SharedString, selected: bool, hint: String, cx: &App) -> Stateful<Div> {
+    fn rail_item(&self, id: SharedString, selected: bool, hint: String, cx: &App) -> Stateful<Div> {
         div()
             .id(id)
             .relative()
@@ -94,7 +95,11 @@ impl Workspace {
             .justify_center()
             .cursor_pointer()
             .tooltip_show_delay(gds::ui::TOOLTIP_DELAY)
-            .hoverable_tooltip(move |window, cx| crate::ui::tooltip::view(hint.clone(), window, cx))
+            .when(self.window.menu.is_none(), |row| {
+                row.hoverable_tooltip(move |window, cx| {
+                    crate::ui::tooltip::view(hint.clone(), window, cx)
+                })
+            })
             .when(selected, |row| {
                 row.bg(cx.theme().sidebar_accent)
                     .text_color(cx.theme().sidebar_accent_foreground)
@@ -104,7 +109,12 @@ impl Workspace {
             })
     }
 
-    fn rail_session(&self, session: &SessionMeta, cx: &mut Context<Self>) -> AnyElement {
+    fn rail_session(
+        &self,
+        session: &SessionMeta,
+        cycle: &super::CycleTargets,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let id = session.id;
         let selected = self.selected.id == Some(id);
         let state = self.session_row_status(session);
@@ -136,7 +146,7 @@ impl Workspace {
                 .right(px(BADGE_INSET))
                 .child(Icon::new(IconName::Pin).size(px(crate::ui::SMALL_ICON)))
         });
-        Self::rail_item(format!("rail-session-{id}").into(), selected, hint, cx)
+        self.rail_item(format!("rail-session-{id}").into(), selected, hint, cx)
             .test_support()
             .role(gpui_kit::Role::Button)
             .aria_label(title(session))
@@ -157,6 +167,7 @@ impl Workspace {
                     .child(badge)
             }))
             .children(pinned)
+            .children(cycle.hints(id, true))
             .on_click(cx.listener(move |this, _, window, cx| this.select(id, window, cx)))
             .on_mouse_down(
                 gpui_kit::MouseButton::Right,
@@ -181,7 +192,7 @@ impl Workspace {
             self.selected.agent,
             groups::name(directory.as_deref())
         );
-        Self::rail_item("rail-draft".into(), true, hint, cx)
+        self.rail_item("rail-draft".into(), true, hint, cx)
             .test_support()
             .role(gpui_kit::Role::Button)
             .aria_label(self.draft_title())

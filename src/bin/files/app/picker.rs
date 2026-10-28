@@ -8,12 +8,12 @@
 
 use std::sync::Arc;
 
-use gds::ui::{self, Shortcut};
+use gds::ui::{self, Shortcut, button::Button};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     Disableable, Icon, Sizable,
-    button::{Button, ButtonVariants},
+    button::ButtonVariants,
     checkbox::Checkbox,
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
 };

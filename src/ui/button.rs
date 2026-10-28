@@ -1,30 +1,65 @@
-//! Shared control cursor policy; component buttons retain ownership of all interaction and visuals.
+//! Shared buttons, fixed action-icon sizing and control cursor policy.
+
+use std::rc::Rc;
 
 use gpui_kit::{
     AnyElement, App, ClickEvent, CursorStyle, ElementId, InteractiveElement, Interactivity,
     IntoElement, ParentElement, RenderOnce, SharedString, StyleRefinement, Styled, Window,
+    assets::IconName,
     component::{
         Disableable, Icon, Selectable, Sizable, Size,
-        button::{Button as ComponentButton, ButtonVariant, ButtonVariants},
+        button::{Button as ComponentButton, ButtonCustomVariant, ButtonVariant, ButtonVariants},
+        spinner::Spinner,
     },
+    px,
 };
 
 #[derive(IntoElement)]
 pub struct Button {
+    id: ElementId,
     inner: ComponentButton,
     disabled: bool,
     loading: bool,
+    control_icon: Option<IconName>,
+    children: Vec<AnyElement>,
+    variant: ButtonVariant,
+    tooltip: Option<Rc<dyn Fn(&mut Window, &mut App) -> gpui_kit::AnyView>>,
+    shortcut: Option<super::Shortcut>,
 }
 
 impl Button {
     pub fn new(id: impl Into<ElementId>) -> Self {
+        let id = id.into();
         Self {
-            inner: ComponentButton::new(id)
+            inner: ComponentButton::new(id.clone())
                 .text_size(super::SMALL)
                 .line_height(gpui_kit::relative(1.)),
             disabled: false,
             loading: false,
+            control_icon: None,
+            children: Vec::new(),
+            variant: ButtonVariant::Default,
+            tooltip: None,
+            id,
+            shortcut: None,
         }
+    }
+
+    /// The shared toolbar control: a 32px target with a 16px action icon.
+    pub fn icon_button(id: impl Into<ElementId>) -> Self {
+        Self::new(id)
+            .ghost()
+            .small()
+            .w(px(super::ICON_BUTTON_SIZE))
+            .h(px(super::ICON_BUTTON_SIZE))
+            .p_0()
+            .flex_shrink_0()
+    }
+
+    /// Render an action icon at the suite size, independently of button density.
+    pub fn control_icon(mut self, icon: IconName) -> Self {
+        self.control_icon = Some(icon);
+        self
     }
 
     pub fn label(mut self, label: impl Into<SharedString>) -> Self {
@@ -42,8 +77,64 @@ impl Button {
         self
     }
 
-    pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
-        self.inner = self.inner.tooltip(tooltip);
+    pub fn tooltip(self, tooltip: impl Into<SharedString>) -> Self {
+        let label = tooltip.into();
+        self.hoverable_tooltip(move |window, cx| super::tooltip::view(label.clone(), window, cx))
+    }
+
+    /// Register this control with the same held-modifier layer as `IconButton`.
+    pub fn shortcut(mut self, shortcut: impl Into<super::Shortcut>) -> Self {
+        self.shortcut = Some(shortcut.into());
+        self
+    }
+
+    /// One action supplies both its hover keycaps and held-modifier hint.
+    pub fn tooltip_with_shortcut(
+        self,
+        label: impl Into<SharedString>,
+        shortcut: impl Into<super::Shortcut>,
+    ) -> Self {
+        let shortcut = shortcut.into();
+        self.shortcut(shortcut.clone())
+            .hoverable_tooltip(super::ShortcutHint::new(label, shortcut).builder())
+    }
+
+    pub fn tooltip_with_action(
+        self,
+        tooltip: impl Into<SharedString>,
+        action: &dyn gpui_kit::Action,
+        context: Option<&str>,
+    ) -> Self {
+        let label = tooltip.into();
+        let action = action.boxed_clone();
+        let context = context
+            .map(|context| {
+                gpui_kit::KeyContext::parse(context).expect("bundled action contexts are valid")
+            })
+            .unwrap_or_default();
+        self.hoverable_tooltip(move |window, cx| {
+            let hint = match window
+                .highest_precedence_binding_for_action_in_context(&*action, context.clone())
+            {
+                Some(binding) => super::ShortcutHint::binding(label.clone(), binding),
+                None => super::ShortcutHint::plain(label.clone()),
+            };
+            hint.builder()(window, cx)
+        })
+    }
+
+    pub fn compact(mut self) -> Self {
+        self.inner = self.inner.compact();
+        self
+    }
+
+    pub fn dropdown_caret(mut self, show: bool) -> Self {
+        self.inner = self.inner.dropdown_caret(show);
+        self
+    }
+
+    pub fn toggled(mut self, toggled: bool) -> Self {
+        self.inner = self.inner.toggled(toggled);
         self
     }
 
@@ -51,7 +142,7 @@ impl Button {
         mut self,
         tooltip: impl Fn(&mut Window, &mut App) -> gpui_kit::AnyView + 'static,
     ) -> Self {
-        self.inner.interactivity().hoverable_tooltip(tooltip);
+        self.tooltip = Some(Rc::new(tooltip));
         self
     }
 
@@ -68,7 +159,53 @@ impl Button {
         self
     }
 
-    fn into_component(mut self) -> ComponentButton {
+    fn into_component(mut self, window: &mut Window, cx: &mut App) -> ComponentButton {
+        if let Some(tooltip) = self.tooltip.take() {
+            self.inner
+                .interactivity()
+                .hoverable_tooltip(move |window, cx| tooltip(window, cx));
+        }
+        if !self.disabled
+            && !self.loading
+            && let Some(shortcut) = self.shortcut.take()
+        {
+            self.inner = self
+                .inner
+                .relative()
+                .child(super::keytips::anchor(window, cx, self.id, shortcut));
+        }
+        if self.variant == ButtonVariant::Ghost {
+            let colors = crate::theme::Colors::current(cx);
+            let selected = self.inner.is_selected();
+            let variant = ButtonCustomVariant::new(cx)
+                .foreground(if selected {
+                    colors.selection_foreground
+                } else {
+                    colors.foreground
+                })
+                .hover(colors.hover())
+                .active(if selected {
+                    colors.selection
+                } else {
+                    colors.pressed()
+                });
+            self.inner = self.inner.custom(variant);
+        }
+        if let Some(icon) = self.control_icon {
+            // Kit resizes icons supplied through `.icon()` to the button's
+            // density. A content icon retains the shared action-icon size.
+            let artwork = if self.loading {
+                Spinner::new()
+                    .with_size(px(crate::design::ICON_SIZE))
+                    .into_any_element()
+            } else {
+                Icon::new(icon)
+                    .size(px(crate::design::ICON_SIZE))
+                    .into_any_element()
+            };
+            self.inner = self.inner.child(artwork);
+        }
+        self.inner.extend(self.children);
         // Explicit styles (e.g. passive status icons) win only while enabled.
         let cursor = if self.disabled || self.loading {
             CursorStyle::Arrow
@@ -112,6 +249,7 @@ impl Sizable for Button {
 
 impl ButtonVariants for Button {
     fn with_variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
         self.inner = self.inner.with_variant(variant);
         self
     }
@@ -125,7 +263,7 @@ impl Styled for Button {
 
 impl ParentElement for Button {
     fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
-        self.inner.extend(elements);
+        self.children.extend(elements);
     }
 }
 
@@ -139,6 +277,6 @@ impl gpui_kit::component::menu::DropdownMenu for Button {}
 
 impl RenderOnce for Button {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        self.into_component().render(window, cx)
+        self.into_component(window, cx).render(window, cx)
     }
 }

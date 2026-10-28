@@ -61,6 +61,31 @@ impl Workspace {
         session.acp = Some(
             acp::NewSessionResponse::new(session.id.to_string()).config_options(vec![
                 acp::SessionConfigOption::select(
+                    "mode",
+                    "Mode",
+                    "agent",
+                    vec![
+                        acp::SessionConfigSelectOption::new("read-only", "Read only"),
+                        acp::SessionConfigSelectOption::new("workspace-write", "Workspace access"),
+                        acp::SessionConfigSelectOption::new("agent", "Auto review"),
+                        acp::SessionConfigSelectOption::new("agent-full-access", "Full access"),
+                    ],
+                )
+                .description("Approval and sandboxing preset for the session")
+                .category(acp::SessionConfigOptionCategory::Mode),
+                acp::SessionConfigOption::select(
+                    "collaboration_mode",
+                    "Collaboration mode",
+                    "default",
+                    vec![
+                        acp::SessionConfigSelectOption::new("default", "Default"),
+                        acp::SessionConfigSelectOption::new("plan", "Plan"),
+                    ],
+                )
+                .category(acp::SessionConfigOptionCategory::Other(
+                    "collaboration_mode".into(),
+                )),
+                acp::SessionConfigOption::select(
                     "model",
                     "模型",
                     "default",
@@ -74,15 +99,23 @@ impl Workspace {
                             })
                             .collect()
                     } else {
-                        vec![acp::SessionConfigSelectOption::new("default", "Default")]
+                        vec![acp::SessionConfigSelectOption::new("default", "6.1 Sol")]
                     },
-                ),
+                )
+                .category(acp::SessionConfigOptionCategory::Model),
                 acp::SessionConfigOption::select(
-                    "thinking",
-                    "Thinking",
-                    "off",
-                    vec![acp::SessionConfigSelectOption::new("off", "Thinking: off")],
-                ),
+                    "reasoning_effort",
+                    "Reasoning effort",
+                    "medium",
+                    vec![
+                        acp::SessionConfigSelectOption::new("low", "Low"),
+                        acp::SessionConfigSelectOption::new("medium", "Medium"),
+                        acp::SessionConfigSelectOption::new("high", "High"),
+                    ],
+                )
+                .category(acp::SessionConfigOptionCategory::ThoughtLevel),
+                acp::SessionConfigOption::boolean("fast_mode", "Fast mode", false)
+                    .description("Prioritize response speed"),
             ]),
         );
         session.initialization = Some(

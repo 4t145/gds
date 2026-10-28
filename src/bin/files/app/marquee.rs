@@ -19,8 +19,6 @@ use super::*;
 /// Pointer travel that turns a blank press into a marquee. A shorter press is
 /// still a plain blank click.
 const DRAG_THRESHOLD: f32 = 4.;
-const FILL_OPACITY: f32 = 0.12;
-const BORDER_OPACITY: f32 = 0.6;
 
 /// The page a marquee started on. Selection is written only while that page is
 /// still the visible one, so a marquee never edits another tab's selection.
@@ -82,9 +80,9 @@ impl Drag {
         window.paint_quad(quad(
             Bounds::new(point(left, top), size(right - left, bottom - top)),
             px(0.),
-            theme.accent.opacity(FILL_OPACITY),
+            theme.drop_target,
             px(1.),
-            theme.accent.opacity(BORDER_OPACITY),
+            theme.drag_border,
             BorderStyle::default(),
         ));
     }

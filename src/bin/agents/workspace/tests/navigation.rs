@@ -176,9 +176,27 @@ fn collapsed_sidebar_keeps_drafts_and_switches_sessions_without_expanding(cx: &m
             "Keep the session draft"
         );
         window.right_click(format!("rail-session-{}", first.id), cx);
-        assert!(fixture.view.read(cx).window.menu.is_some());
+        assert!(
+            fixture
+                .view
+                .read(cx)
+                .window
+                .menu
+                .as_ref()
+                .is_some_and(|menu| menu.window.is_none())
+        );
+        assert_eq!(cx.windows().len(), 1);
+        window.render_frame(cx);
+        assert!(window.find("popup-menu").visible());
+        window.press("escape", cx);
     })
     .expect("collapsed session navigation preserves drafts and context actions");
+    cx.run_until_parked();
+    fixture.view.read_with(cx, |view, _| {
+        assert!(view.window.menu.is_none());
+        assert!(!view.window.sidebar_visible);
+        assert!(!view.window.compact);
+    });
 }
 
 #[gpui_kit::test]
@@ -419,9 +437,10 @@ fn sidebar_title_context_menu_still_renames(cx: &mut TestAppContext) {
     let fixture = fixture(cx);
     let target = session();
     attach(&fixture, target.clone(), cx);
-    let popup = cx
-        .update_window(fixture.window.into(), |_, window, cx| {
-            window.right_click(format!("thread-title-text-{}", target.id), cx);
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        let size = window.bounds().size;
+        window.right_click(format!("thread-title-text-{}", target.id), cx);
+        assert!(
             fixture
                 .view
                 .read(cx)
@@ -430,9 +449,13 @@ fn sidebar_title_context_menu_still_renames(cx: &mut TestAppContext) {
                 .as_ref()
                 .expect("context menu")
                 .window
-        })
-        .expect("open context menu");
-    cx.update_window(popup.unwrap_or(fixture.window.into()), |_, window, cx| {
+                .is_none()
+        );
+        assert_eq!(cx.windows().len(), 1);
+        assert_eq!(window.bounds().size, size);
+    })
+    .expect("open context menu");
+    cx.update_window(fixture.window.into(), |_, window, cx| {
         for _ in 0..3 {
             window.press("down", cx);
         }

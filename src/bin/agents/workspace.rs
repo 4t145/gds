@@ -380,15 +380,6 @@ impl Workspace {
             .or_else(|| self.attachment_error(cx))
     }
 
-    fn send_hint(&self, _: &App) -> String {
-        let label = if self.working() {
-            crate::i18n::tr!("composer-queue-hint")
-        } else {
-            crate::i18n::tr!("composer-send-hint")
-        };
-        format!("{label} · {}", self.composer_send_shortcut())
-    }
-
     fn refresh(&mut self, cx: &mut Context<Self>) {
         self.command(Command::Refresh, cx);
         if self.selected.id.is_none() {

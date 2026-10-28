@@ -6,20 +6,17 @@
 
 use super::*;
 
-use gds::ui::{self, Shortcut, ShortcutBadge};
+use gds::ui::{self, Shortcut, button::Button};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme, Icon, Selectable, Sizable, WindowExt,
-    button::{Button, ButtonVariants},
+    ActiveTheme, Icon, Selectable, WindowExt,
     dialog::AlertDialog,
     menu::{PopupMenu, PopupMenuItem},
     popover::{Popover, PopoverState},
 };
 use gpui_kit::prelude::*;
 
-const MENU_WIDTH: f32 = 260.;
-const CONTENT_PADDING: f32 = 24.;
 /// The product name shown in the about dialog; it is the same name the window
 /// and application identity carry, not a translatable message.
 const APP_NAME: &str = "GDS Files";
@@ -66,15 +63,12 @@ impl MenuEntry {
     }
 
     /// The row's label and, for a command row, its live key badge.
-    fn render(self) -> impl Fn(&mut Window, &mut App) -> Div {
-        move |_, cx| {
-            let badge = self.command().map(ShortcutBadge::new);
-            el! {
-                .div { flex; items_center; w_full; min_w: MENU_WIDTH.px; gap: CONTENT_PADDING.px } [
-                    .div { flex_1; min_w_0; truncate } [$i18n::text(self.label_id(), cx)],
-                    @if (let Some(badge) = badge) $(badge), @end,
-                ]
-            }
+    fn render(self) -> impl Fn(&mut Window, &mut App) -> AnyElement {
+        move |window, cx| {
+            ui::menu::row(
+                i18n::text(self.label_id(), cx),
+                self.command().map(Into::into),
+            )(window, cx)
         }
     }
 
@@ -143,11 +137,8 @@ impl RenderOnce for Trigger {
         let shortcut = Shortcut::from(Command::Menu);
         let hint = ui::keytips::anchor(window, cx, id.clone(), shortcut);
         let tooltip = ui::command_tooltip(label.clone(), Command::Menu);
-        let button = Button::new(id.clone())
-            .ghost()
-            .small()
-            .size(px(ui::ICON_BUTTON_SIZE))
-            .icon(Icon::new(IconName::Menu))
+        let button = Button::icon_button(id.clone())
+            .control_icon(IconName::Menu)
             .accessibility_label(label)
             .selected(open);
         div()
@@ -275,6 +266,7 @@ fn popup(
 
 /// Application pages and the about entry.
 fn rows(mut menu: PopupMenu, view: WeakEntity<Browser>) -> PopupMenu {
+    menu = ui::menu::popup(menu);
     for entry in MenuEntry::ROWS {
         let render = entry.render();
         let on_click = entry.on_click(view.clone());

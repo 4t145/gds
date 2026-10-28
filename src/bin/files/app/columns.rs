@@ -15,12 +15,13 @@ use std::{
 };
 
 use fluent_bundle::FluentArgs;
+use gds::ui::button::Button;
 use gds::{i18n, notifications, ui};
 use gds_uim::el;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     ActiveTheme, Disableable, Icon, Sizable, WindowExt,
-    button::{Button, ButtonVariants},
+    button::ButtonVariants,
     checkbox::Checkbox,
     menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     tooltip::Tooltip,
@@ -360,8 +361,8 @@ impl Editor {
             })
             .drag_over::<ColumnDrag>(|style, _, _, cx| {
                 style
-                    .bg(cx.theme().accent.opacity(0.10))
-                    .border_color(cx.theme().accent)
+                    .bg(cx.theme().drop_target)
+                    .border_color(cx.theme().drag_border)
             })
     }
 
@@ -405,7 +406,7 @@ impl Editor {
                 flex; items_center; gap: ROW_GAP.px; w_full; min_w_0; min_h: ROW_HEIGHT.px;
                 px: ROW_PADDING_X.px; rounded: ROW_RADIUS.px;
                 border_t_2; border_color: $(cx.theme().border.opacity(0.));
-                hover: { bg: $(cx.theme().secondary) };
+                hover: { bg: $(cx.theme().list_hover) };
             } [
                 .div {
                     # handle_id;

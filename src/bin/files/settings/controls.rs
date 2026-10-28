@@ -1,59 +1,48 @@
 //! Shared presentation and state adapters for native settings controls.
 
-use fluent_bundle::FluentArgs;
 use gds_uim::el;
 use gpui_kit::{
     assets::IconName,
     component::{
         ActiveTheme, IndexPath, Sizable,
-        button::{Button, ButtonVariants},
+        button::ButtonVariants,
         select::{SearchableVec, Select, SelectEvent, SelectItem, SelectState},
     },
     *,
 };
 
 use crate::settings::{Preferences, View};
+use gds::ui::button::Button;
 use gds::{
-    i18n::{self, Language, text},
+    i18n::text,
     theme::{ModePreference, Source},
-    time,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Field {
-    Language,
-    TimeFormat,
     Source,
     Mode,
     ContentOpacity,
     SidebarOpacity,
     ShowHidden,
     SidebarVolumes,
-    FontFamily,
-    FontSize,
 }
 
 impl Field {
     pub fn label_id(self) -> &'static str {
         match self {
-            Self::Language => "language",
-            Self::TimeFormat => "time-format-label",
             Self::Source => "theme-source",
             Self::Mode => "theme-mode",
             Self::ContentOpacity => "theme-opacity",
             Self::SidebarOpacity => "sidebar-opacity",
             Self::ShowHidden => "show-hidden",
             Self::SidebarVolumes => "sidebar-show-volumes",
-            Self::FontFamily => "font-family-label",
-            Self::FontSize => "font-size-label",
         }
     }
 
     pub fn is_modified(self, preferences: &Preferences) -> bool {
         let defaults = Preferences::default();
         match self {
-            Self::Language => preferences.language != defaults.language,
-            Self::TimeFormat => preferences.time_format != defaults.time_format,
             Self::Source => preferences.appearance.source != defaults.appearance.source,
             Self::Mode => preferences.appearance.mode != defaults.appearance.mode,
             Self::ContentOpacity => !PERCENTAGE_RANGE.equivalent(
@@ -68,10 +57,6 @@ impl Field {
             Self::SidebarVolumes => {
                 preferences.files.sidebar.show_volumes != defaults.files.sidebar.show_volumes
             }
-            Self::FontFamily => preferences.font.family != defaults.font.family,
-            Self::FontSize => {
-                !FONT_SIZE_RANGE.equivalent(preferences.font.size, defaults.font.size)
-            }
         }
     }
 
@@ -81,8 +66,6 @@ impl Field {
         }
         let defaults = Preferences::default();
         match self {
-            Self::Language => preferences.language = defaults.language,
-            Self::TimeFormat => preferences.time_format = defaults.time_format,
             Self::Source => preferences.appearance.source = defaults.appearance.source,
             Self::Mode => preferences.appearance.mode = defaults.appearance.mode,
             Self::ContentOpacity => {
@@ -95,8 +78,6 @@ impl Field {
             Self::SidebarVolumes => {
                 preferences.files.sidebar.show_volumes = defaults.files.sidebar.show_volumes
             }
-            Self::FontFamily => preferences.font.family = defaults.font.family,
-            Self::FontSize => preferences.font.size = defaults.font.size,
         }
         true
     }
@@ -112,7 +93,6 @@ impl Field {
     pub fn number_range(self) -> Option<NumberRange> {
         match self {
             Self::ContentOpacity | Self::SidebarOpacity => Some(PERCENTAGE_RANGE),
-            Self::FontSize => Some(FONT_SIZE_RANGE),
             _ => None,
         }
     }
@@ -121,7 +101,6 @@ impl Field {
         match self {
             Self::ContentOpacity => Some(preferences.appearance.content_opacity * 100.0),
             Self::SidebarOpacity => Some(preferences.appearance.sidebar_opacity * 100.0),
-            Self::FontSize => Some(preferences.font.size),
             _ => None,
         }
     }
@@ -134,7 +113,6 @@ impl Field {
             Self::SidebarOpacity => {
                 Self::replace(&mut preferences.appearance.sidebar_opacity, value / 100.0)
             }
-            Self::FontSize => Self::replace(&mut preferences.font.size, value),
             _ => unreachable!("only numeric fields own numeric controls"),
         }
     }
@@ -173,56 +151,6 @@ impl<T: Clone + PartialEq> SelectItem for Choice<T> {
     }
 }
 
-struct LanguageEntry {
-    value: Option<Language>,
-    label_id: &'static str,
-    search_terms: &'static str,
-}
-
-const SUPPORTED_LANGUAGES: &[LanguageEntry] = &[
-    LanguageEntry {
-        value: None,
-        label_id: "language-system",
-        search_terms: "system automatic 系统",
-    },
-    LanguageEntry {
-        value: Some(Language::Chinese),
-        label_id: "language-chinese",
-        search_terms: "zh zh-CN Chinese 中文 简体",
-    },
-    LanguageEntry {
-        value: Some(Language::English),
-        label_id: "language-english",
-        search_terms: "en en-US English 英语 英文",
-    },
-];
-
-impl Choice<Option<Language>> {
-    pub fn catalog(cx: &App) -> Vec<Self> {
-        SUPPORTED_LANGUAGES
-            .iter()
-            .map(|entry| Self::new(entry.value, text(entry.label_id, cx), entry.search_terms))
-            .collect()
-    }
-}
-
-impl Choice<time::Format> {
-    pub fn catalog(cx: &App) -> Vec<Self> {
-        vec![
-            Self::new(
-                time::Format::Relative,
-                text("time-format-relative", cx),
-                "relative ago today 相对 之前 刚刚",
-            ),
-            Self::new(
-                time::Format::Absolute,
-                text("time-format-absolute", cx),
-                "absolute date time 完整 日期 时间",
-            ),
-        ]
-    }
-}
-
 impl Choice<Source> {
     pub fn catalog(cx: &App) -> Vec<Self> {
         vec![
@@ -243,38 +171,6 @@ impl Choice<ModePreference> {
             Self::new(ModePreference::Light, text("theme-light", cx), "light 浅色"),
             Self::new(ModePreference::Dark, text("theme-dark", cx), "dark 深色"),
         ]
-    }
-}
-
-impl Choice<Option<String>> {
-    /// The system default, then every installed family, then a configured
-    /// family that is no longer installed so its stored value stays visible.
-    ///
-    /// The installed list is passed in because enumerating platform fonts is
-    /// more expensive than rebuilding the labels after a language change.
-    pub fn fonts(current: Option<&str>, installed: &[String], cx: &App) -> Vec<Self> {
-        let mut choices = vec![Self::new(
-            None,
-            text("font-family-system", cx),
-            "system default 系统 默认",
-        )];
-        choices.extend(
-            installed
-                .iter()
-                .map(|family| Self::new(Some(family.clone()), family.clone().into(), "")),
-        );
-        if let Some(family) =
-            current.filter(|family| !installed.iter().any(|name| name.as_str() == *family))
-        {
-            let mut arguments = FluentArgs::new();
-            arguments.set("family", family.to_owned());
-            choices.push(Self::new(
-                Some(family.to_owned()),
-                i18n::format("font-family-missing", Some(&arguments), cx),
-                "",
-            ));
-        }
-        choices
     }
 }
 
@@ -340,7 +236,7 @@ impl<T: Clone + PartialEq + 'static> ChoiceControl<T> {
         cx: &App,
     ) -> Select<SearchableVec<Choice<T>>> {
         el! {
-            $(&self.state).Select::new {
+            ($(&self.state), cx).gds::ui::field::select {
                 id: $("settings-select", field as usize);
                 small; w_full;
                 menu_width: CONTROL_WIDTH.px;
@@ -352,7 +248,7 @@ impl<T: Clone + PartialEq + 'static> ChoiceControl<T> {
     }
 }
 
-pub(super) use gds::ui::settings::{CONTROL_WIDTH, FONT_SIZE_RANGE, NumberRange, PERCENTAGE_RANGE};
+pub(super) use gds::ui::settings::{CONTROL_WIDTH, NumberRange, PERCENTAGE_RANGE};
 
 pub(super) struct NumberControl(gds::ui::settings::NumberControl);
 impl std::ops::Deref for NumberControl {

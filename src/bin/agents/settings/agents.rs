@@ -1128,7 +1128,7 @@ impl Agents {
                                     id: $(id);
                                     test_support;
                                 } [
-                                    $(crate::ui::input::placeholder(input, Input::new(input).small().disabled(self.editor.deleting() || !self.registry.editable() || self.configuration_task.is_some()))),
+                                    $(crate::ui::input::placeholder(input, gds::ui::field::input(input, cx).small().disabled(self.editor.deleting() || !self.registry.editable() || self.configuration_task.is_some()))),
                                 ],
                 ]})),
                 ..$(self.editor.deleting().then(|| gds_uim::el! {.div {

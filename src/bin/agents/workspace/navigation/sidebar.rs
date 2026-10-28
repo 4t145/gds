@@ -11,6 +11,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let query = self.navigation.search.read(cx).value().to_lowercase();
+        let cycle = self.thread_cycle_targets(cx);
         let sessions = self.visible_sessions();
         let groups = if self.navigation.view.flat() {
             Vec::new()
@@ -45,7 +46,7 @@ impl Workspace {
                             flex;
                             flex_col;
                         } [
-                            .div {
+                            ($(label.clone()), cx).gds::ui::sidebar_section_title {
                                 id: $(group.period.id());
                                 test_support;
                                 role: gpui_kit::Role::Label;
@@ -53,12 +54,8 @@ impl Workspace {
                                 px_3;
                                 pt_3;
                                 pb_1;
-                                text_size: crate::ui::SMALL;
-                                text_color: $(cx.theme().muted_foreground);
-                            } [
-                                $(label),
-                            ],
-                            ..$(group.sessions.into_iter().map(|session| self.thread_row(session, cx))),
+                            },
+                            ..$(group.sessions.into_iter().map(|session| self.thread_row(session, &cycle, cx))),
                         ]
                     }
                     .into_any_element()
@@ -68,7 +65,7 @@ impl Workspace {
             history::sorted(&sessions)
                 .into_iter()
                 .filter(|session| matches_query(session, &query))
-                .map(|session| self.thread_row(session, cx))
+                .map(|session| self.thread_row(session, &cycle, cx))
                 .collect()
         } else {
             groups
@@ -98,7 +95,7 @@ impl Workspace {
                         .threads
                         .into_iter()
                         .filter(|_| !collapsed)
-                        .map(|session| self.thread_row(session, cx));
+                        .map(|session| self.thread_row(session, &cycle, cx));
                     gds_uim::el! {
                         .div [
                             $(header),
@@ -223,11 +220,10 @@ impl Workspace {
                 text_color: $(cx.theme().muted_foreground);
                 when: active, {
                     text_color: $(cx.theme().sidebar_foreground);
-                    bg: $(cx.theme().list_hover);
                 };
                 cursor_pointer;
                 hover: {
-                    bg: $(cx.theme().list_hover);
+                    bg: $(gds::theme::Colors::current(cx).sidebar_hover());
                 };
                 on_click: $(cx.listener(move |this, _, _, cx| {
                             this.toggle_workspace_collapsed(directory.clone(), cx)

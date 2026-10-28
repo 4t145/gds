@@ -62,7 +62,7 @@ impl AppearancePage {
                     flex_1;
                     min_w_0;
                 } [
-                    ($(&self.form.default_agent)).Select::new {
+                    ($(&self.form.default_agent), cx).gds::ui::field::select {
                         small;
                         w_full;
                         cursor_pointer;

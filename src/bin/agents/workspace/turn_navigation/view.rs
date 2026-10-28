@@ -28,7 +28,7 @@ fn marker_tick(
                 w: TICK_WIDTH.px;
                 h: $(if active { ACTIVE_TICK_HEIGHT } else { 2. }).px;
                 rounded_full;
-                bg: $(if active || bookmarked { cx.theme().primary } else { cx.theme().muted_foreground.opacity(0.7) });
+                bg: $(if active || bookmarked { cx.theme().primary } else { cx.theme().muted_foreground });
                 group_hover: group, $(gds_uim::m! {w: HOVER_TICK_WIDTH.px;
                         h: $(if active { ACTIVE_TICK_HEIGHT } else { 3. }).px;
                         bg: $(cx.theme().primary);});
@@ -43,14 +43,16 @@ fn marker_time(entry: &HistoryOverviewEntry) -> Timestamp {
 
 fn marker_hint(entry: &HistoryOverviewEntry, bookmarked: bool, cx: &App) -> String {
     format!(
-        "{}\n{}\n{}\n{}",
+        "{}\n{}\nCtrl + {}: {}\nAlt + {}: {}",
         entry.preview,
         crate::ui::time::recent_time(marker_time(entry), Timestamp::now(), cx),
+        crate::i18n::tr!("shortcut-click"),
         if bookmarked {
             crate::i18n::tr!("turn-marker-remove-bookmark")
         } else {
             crate::i18n::tr!("turn-marker-add-bookmark")
         },
+        crate::i18n::tr!("shortcut-scroll"),
         crate::i18n::tr!("turn-marker-wheel-hint"),
     )
 }
@@ -190,8 +192,8 @@ impl Workspace {
                                                                 rounded_sm;
                                                                 px_1;
                                                                 whitespace_nowrap;
-                                                                bg: $(cx.theme().primary.opacity(0.15));
-                                                                text_color: $(cx.theme().primary);
+                                                                bg: $(cx.theme().accent);
+                                                                text_color: $(cx.theme().accent_foreground);
                                                             } [
                                                                 .div {
                                                                     id: "turn-marker-bookmark-icon";
@@ -219,19 +221,16 @@ impl Workspace {
                                                 text_xs;
                                                 text_color: $(cx.theme().muted_foreground);
                                             } [
-                                                .div [
-                                                    $(control_hint),
-                                                ],
+                                                $(gds::ui::ShortcutHint::gesture(control_hint,
+                                                    ["Ctrl".into(), crate::i18n::tr!("shortcut-click").into()])),
                                                 .div {
                                                     id: "turn-marker-previous-hint";
                                                     test_support;
                                                     role: gpui_kit::Role::Label;
                                                     aria_label: $(previous.clone());
                                                 } [
-                                                    .div { flex; items_center; gap_3 } [
-                                                        $(crate::i18n::tr!("turn-marker-previous")),
-                                                        $(gds::ui::ShortcutBadge::bound(gds::ui::Shortcut::new(Box::new(shortcuts::PreviousConversationTurn), Some("BasWorkspace")))),
-                                                    ],
+                                                    $(gds::ui::ShortcutHint::new(crate::i18n::tr!("turn-marker-previous"),
+                                                        gds::ui::Shortcut::new(Box::new(shortcuts::PreviousConversationTurn), Some("BasWorkspace")))),
                                                 ],
                                                 .div {
                                                     id: "turn-marker-next-hint";
@@ -239,14 +238,11 @@ impl Workspace {
                                                     role: gpui_kit::Role::Label;
                                                     aria_label: $(next.clone());
                                                 } [
-                                                    .div { flex; items_center; gap_3 } [
-                                                        $(crate::i18n::tr!("turn-marker-next")),
-                                                        $(gds::ui::ShortcutBadge::bound(gds::ui::Shortcut::new(Box::new(shortcuts::NextConversationTurn), Some("BasWorkspace")))),
-                                                    ],
+                                                    $(gds::ui::ShortcutHint::new(crate::i18n::tr!("turn-marker-next"),
+                                                        gds::ui::Shortcut::new(Box::new(shortcuts::NextConversationTurn), Some("BasWorkspace")))),
                                                 ],
-                                                .div [
-                                                    $(crate::i18n::tr!("turn-marker-wheel-hint")),
-                                                ],
+                                                $(gds::ui::ShortcutHint::gesture(crate::i18n::tr!("turn-marker-wheel-hint"),
+                                                    ["Alt".into(), crate::i18n::tr!("shortcut-scroll").into()])),
                                             ],
                                     ]}.into_any_element()
                                 }, window, cx)
@@ -271,6 +267,7 @@ impl Workspace {
             .div {
                 id: $(group.clone());
                 test_support;
+                relative;
                 role: gpui_kit::Role::Button;
                 aria_label: $(crate::i18n::tr!("conversation-end"));
                 group: $(group.clone());
@@ -281,6 +278,7 @@ impl Workspace {
                 cursor_pointer;
                 on_click: $(cx.listener(|this, _, _, cx| this.scroll_conversation_to_end(cx)));
             } [
+                ("turn-marker-end", $(shortcuts::shortcut(ScrollConversationToEnd))).gds::ui::keytips::Anchor::new,
                 $(marker_tick("turn-marker-line-end".into(), group, at_end, false, cx)),
             ]
         };
@@ -309,7 +307,7 @@ impl Workspace {
                     max_h_full;
                     rounded_md;
                     hover: {
-                        bg: $(cx.theme().muted.opacity(0.24));
+                        bg: $(cx.theme().list_hover);
                     };
                     on_scroll_wheel: $(cx.listener(|this, event, window, cx| {
                                 this.on_navigation_wheel(event, window, cx);

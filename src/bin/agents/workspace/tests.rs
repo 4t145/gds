@@ -12,8 +12,10 @@ mod connections;
 mod directories;
 mod history;
 mod interruption;
+mod keytips;
 mod navigation;
 mod operations;
+mod options;
 mod paged_history;
 mod picker;
 mod read_state;
@@ -1034,12 +1036,9 @@ fn unsupported_attachment_is_rejected_before_insertion_and_hint_clears_on_edit(
     .expect("window");
     cx.update_window(fixture.window.into(), |_, window, cx| {
         assert!(fixture.view.read(cx).selected.error.is_none());
-        assert!(
-            fixture
-                .view
-                .read(cx)
-                .send_hint(cx)
-                .starts_with("发送消息 · ")
+        assert_eq!(
+            fixture.view.read(cx).composer_shortcut_hint().label(),
+            "发送消息"
         );
         let path = directory.path().join("flake.nix");
         std::fs::write(&path, "{ inputs = {}; }\n").expect("Nix");

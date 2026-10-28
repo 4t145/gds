@@ -49,6 +49,7 @@ pub enum Error {
 /// A Fluent catalog composed of suite messages and the owning application's resources.
 /// Static labels are cached for consumers that render outside a GPUI context.
 pub struct Catalog {
+    language: Language,
     bundle: FluentBundle<FluentResource>,
     labels: HashMap<String, String>,
 }
@@ -85,6 +86,7 @@ impl Catalog {
                 .map_err(|errors| Error::Bundle(format!("{errors:?}")))?;
         }
         let mut catalog = Self {
+            language,
             bundle,
             labels: HashMap::new(),
         };
@@ -140,6 +142,10 @@ pub fn install_resources(
 
 pub fn text(id: &str, cx: &App) -> SharedString {
     format(id, None, cx)
+}
+
+pub fn language(cx: &App) -> Language {
+    cx.global::<Messages>().0.language
 }
 
 pub fn format(id: &str, arguments: Option<&FluentArgs<'_>>, cx: &App) -> SharedString {

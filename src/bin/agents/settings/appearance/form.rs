@@ -24,6 +24,7 @@ pub(super) struct Form {
     pub content_size: Numeric,
     pub line_height: Numeric,
     pub opacity: Numeric,
+    pub sidebar_opacity: Numeric,
     pub source: Entity<SelectState<Vec<Choice<ThemeSource>>>>,
     pub mode: Entity<SelectState<Vec<Choice<ThemeMode>>>>,
     pub background: Entity<SelectState<Vec<Choice<Background>>>>,
@@ -152,6 +153,8 @@ fn validation_message(error: &theme::preferences::ValidationError) -> String {
         "ui_font_size" => crate::i18n::tr!("appearance-ui-size"),
         "content_font_size" => crate::i18n::tr!("appearance-content-size"),
         "content_line_height" => crate::i18n::tr!("appearance-line-height"),
+        "content_opacity" => crate::i18n::tr!("appearance-opacity"),
+        "sidebar_opacity" => crate::i18n::tr!("appearance-sidebar-opacity"),
         "ui_font_family" => crate::i18n::tr!("appearance-ui-font"),
         "mono_font_family" => crate::i18n::tr!("appearance-mono-font"),
         "font_fallbacks" => crate::i18n::tr!("appearance-fallbacks"),
@@ -161,7 +164,9 @@ fn validation_message(error: &theme::preferences::ValidationError) -> String {
         ValidationError::Positive(field) => {
             crate::i18n::tr!("appearance-positive", field = label(field))
         }
-        ValidationError::Opacity => crate::i18n::tr!("appearance-opacity-range").into(),
+        ValidationError::Opacity(field) => {
+            crate::i18n::tr!("appearance-opacity-range", field = label(field))
+        }
         ValidationError::Font(field) => {
             crate::i18n::tr!("appearance-font-required", field = label(field))
         }
@@ -233,6 +238,13 @@ impl Form {
             opacity: Numeric::new(
                 p.content_opacity,
                 gds::design::CONTENT_OPACITY,
+                PERCENTAGE_RANGE,
+                100.,
+                cx,
+            ),
+            sidebar_opacity: Numeric::new(
+                p.sidebar_opacity,
+                gds::design::SIDEBAR_OPACITY,
                 PERCENTAGE_RANGE,
                 100.,
                 cx,
@@ -325,6 +337,7 @@ impl Form {
             content_font_size: self.content_size.value,
             content_line_height: self.line_height.value,
             content_opacity: self.opacity.value,
+            sidebar_opacity: self.sidebar_opacity.value,
             theme_file: None,
             theme_source: self
                 .source

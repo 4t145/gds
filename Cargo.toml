@@ -7,7 +7,7 @@ publish = false
 license = "MIT"
 
 [workspace]
-members = []
+members = ["crates/gds-settings-derive"]
 resolver = "3"
 
 [lib]
@@ -41,6 +41,7 @@ agents = [
 gui-tests = ["agents", "gpui-kit/test-support"]
 
 [dependencies]
+gds-settings-derive = { path = "crates/gds-settings-derive" }
 dirs = { version = "6", optional = true }
 which = { version = "8", optional = true }
 toasty = { version = "=0.11.0", default-features = false, features = ["sqlite", "migration"], optional = true }

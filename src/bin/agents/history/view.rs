@@ -8,7 +8,6 @@ use gpui_kit::{
     component::{
         ActiveTheme, Icon, Sizable,
         button::*,
-        input::Input,
         menu::{DropdownMenu, PopupMenuItem},
         spinner::Spinner,
     },
@@ -566,7 +565,7 @@ impl Render for Browser {
                             on_click: $(cx.listener(|this, _, _, cx| this.reload(cx)));
                         },
                     ],
-                    $(crate::ui::input::placeholder(&self.search, Input::new(&self.search).small().cleanable(true))),
+                    $(crate::ui::input::placeholder(&self.search, gds::ui::field::input(&self.search, cx).small().cleanable(true))),
                     .div {
                         text_color: $(cx.theme().muted_foreground);
                     } [

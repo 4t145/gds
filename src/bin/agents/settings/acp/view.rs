@@ -90,6 +90,7 @@ impl Page {
         label: &'static str,
         help: &'static str,
         input: &Entity<InputState>,
+        cx: &App,
     ) -> AnyElement {
         super::super::form::Row {
             id: id.into(),
@@ -102,7 +103,7 @@ impl Page {
                     test_support;
                     w: $(px(140.));
                 } [
-                    $(Input::new(input).small().disabled(self.disabled())),
+                    $(gds::ui::field::input(input, cx).small().disabled(self.disabled())),
                 ]
             }
             .into_any_element(),
@@ -174,7 +175,7 @@ impl Render for Page {
                         border_color: $(cx.theme().border);
                     } [
                         $(self.field("acp-policy-idle", crate::i18n::tr!("acp-policy-idle"),
-                                crate::i18n::tr!("acp-policy-idle-help"), &self.idle)),
+                                crate::i18n::tr!("acp-policy-idle-help"), &self.idle, cx)),
                     ],
                 ],
                 .div {
@@ -198,7 +199,7 @@ impl Render for Page {
                     } [
                         $(default_agent),
                         $(self.field("acp-policy-size", crate::i18n::tr!("acp-policy-size"),
-                                crate::i18n::tr!("acp-policy-size-help"), &self.size)),
+                                crate::i18n::tr!("acp-policy-size-help"), &self.size, cx)),
                     ],
                     .div {
                         flex;
@@ -248,7 +249,7 @@ impl Render for Page {
                                         test_support;
                                         w: $(px(100.));
                                     } [
-                                        $(Input::new(&pool.size).small().disabled(self.disabled())),
+                                        $(gds::ui::field::input(&pool.size, cx).small().disabled(self.disabled())),
                                     ],
                                     ($(format!("acp-policy-remove-pool-{}", pool.agent)), IconName::Trash, $(crate::i18n::tr!("acp-policy-remove-pool"))).ui::icon_action {
                                         disabled: $(self.disabled());

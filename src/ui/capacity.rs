@@ -21,6 +21,7 @@ pub struct CapacityBar {
     compact: bool,
     unavailable: bool,
     embedded: bool,
+    selected: bool,
 }
 
 impl CapacityBar {
@@ -32,6 +33,7 @@ impl CapacityBar {
             compact: false,
             unavailable: false,
             embedded: false,
+            selected: false,
         }
     }
 
@@ -42,6 +44,11 @@ impl CapacityBar {
 
     pub fn compact(mut self, compact: bool) -> Self {
         self.compact = compact;
+        self
+    }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
         self
     }
     pub fn unavailable(mut self) -> Self {
@@ -75,7 +82,7 @@ impl RenderOnce for CapacityBar {
             } [
                 bar,
                 @if (!self.compact)
-                    .div { text_xs; text_color: $(cx.theme().muted_foreground); truncate } [$(self.label)],
+                    .div { text_xs; text_color: $(if self.selected { cx.theme().accent_foreground } else { cx.theme().muted_foreground }); truncate } [$(self.label)],
                 @end,
             ]
         }

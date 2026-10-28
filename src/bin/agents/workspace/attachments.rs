@@ -548,10 +548,7 @@ impl Workspace {
             self.sessions.pending.loading_attachments.contains(&id) || self.composition_locked(id)
         });
         gds_uim::el! {
-            ("add-attachment").Button::new {
-                ghost;
-                xsmall;
-                icon: IconName::Plus;
+            ("add-attachment", IconName::Plus).crate::ui::icon_button {
                 tooltip: $(crate::i18n::tr!("attachment-add"));
                 disabled: $(self.selected.id.is_none() || busy);
                 on_click: $(cx.listener(Self::on_choose_attachments));

@@ -122,6 +122,7 @@ impl Workspace {
                         py_1;
                         when: $(index == selected), {
                             bg: $(cx.theme().accent);
+                            text_color: $(cx.theme().accent_foreground);
                         };
                         on_click: $(cx.listener(move |this, _, window, cx| {
                                     this.insert_command(&name, window, cx)
@@ -135,6 +136,9 @@ impl Workspace {
                         ],
                         ($(command.description.clone()), cx).caption {
                             truncate;
+                            when: $(index == selected), {
+                                text_color: $(cx.theme().accent_foreground);
+                            };
                         },
                     ]
                 }

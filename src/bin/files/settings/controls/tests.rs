@@ -1,8 +1,9 @@
-use super::{FONT_SIZE_RANGE, Field, NumberRange, PERCENTAGE_RANGE};
+use super::{Field, NumberRange, PERCENTAGE_RANGE};
 use crate::settings::{
     FilesPreferences, Preferences,
     columns::{Column, Layout},
 };
+use gds::ui::settings::{FONT_SIZE_RANGE, form::Model};
 use gds::{
     i18n::Language,
     theme::{Appearance, ModePreference, Source},
@@ -36,6 +37,14 @@ fn modified_preferences() -> Preferences {
             ]),
         },
     }
+}
+
+fn reset_generated<T: Model>(model: &mut T, id: &str) {
+    let field = T::fields()
+        .into_iter()
+        .find(|field| field.id == id)
+        .expect("generated field");
+    (field.set)(model, (field.get)(&T::default())).expect("default field value");
 }
 
 #[test]
@@ -103,7 +112,7 @@ fn resetting_one_opacity_keeps_the_other_material_unchanged() {
 fn language_and_file_preference_reset_are_independent() {
     let before = modified_preferences();
     let mut language = before.clone();
-    assert!(Field::Language.reset(&mut language));
+    reset_generated(&mut language, "language");
     assert_eq!(language.language, Preferences::default().language);
     assert_eq!(language.appearance, before.appearance);
     assert_eq!(language.files, before.files);
@@ -119,11 +128,9 @@ fn language_and_file_preference_reset_are_independent() {
 #[test]
 fn font_family_and_size_reset_independently_of_every_other_preference() {
     let before = modified_preferences();
-    assert!(Field::FontFamily.is_modified(&before));
-    assert!(Field::FontSize.is_modified(&before));
 
     let mut family = before.clone();
-    assert!(Field::FontFamily.reset(&mut family));
+    reset_generated(&mut family.font, "family");
     assert_eq!(family.font.family, Preferences::default().font.family);
     assert_eq!(family.font.size, before.font.size);
     assert_eq!(family.appearance, before.appearance);
@@ -132,11 +139,10 @@ fn font_family_and_size_reset_independently_of_every_other_preference() {
     assert_eq!(family.files, before.files);
 
     let mut size = before.clone();
-    assert!(Field::FontSize.reset(&mut size));
+    reset_generated(&mut size.font, "size");
     assert_eq!(size.font.size, Preferences::default().font.size);
     assert_eq!(size.font.family, before.font.family);
     assert_eq!(size.files, before.files);
-    assert!(!Field::FontSize.is_modified(&size));
 }
 
 #[test]
@@ -145,7 +151,7 @@ fn time_format_reset_is_independent_of_files_language_and_columns() {
     assert_ne!(before.time_format, Preferences::default().time_format);
 
     let mut time = before.clone();
-    assert!(Field::TimeFormat.reset(&mut time));
+    reset_generated(&mut time, "time_format");
     assert_eq!(time.time_format, Preferences::default().time_format);
     assert_eq!(time.files, before.files);
     assert_eq!(time.language, before.language);
@@ -157,7 +163,7 @@ fn time_format_reset_is_independent_of_files_language_and_columns() {
     assert_eq!(files.files.columns, before.files.columns);
 
     let mut language = before.clone();
-    assert!(Field::Language.reset(&mut language));
+    reset_generated(&mut language, "language");
     assert_eq!(language.time_format, before.time_format);
 }
 
@@ -183,8 +189,9 @@ fn legacy_float_rounding_is_equivalent_without_rewriting_the_preference() {
     assert!(PERCENTAGE_RANGE.equivalent(0.6999999 * 100.0, 70.0));
     assert!(!PERCENTAGE_RANGE.equivalent(69.0, 70.0));
     let mut preferences = Preferences::default();
-    preferences.appearance.content_opacity = 0.9999999;
+    let rounded = preferences.appearance.content_opacity - f32::EPSILON;
+    preferences.appearance.content_opacity = rounded;
     assert!(!Field::ContentOpacity.is_modified(&preferences));
     assert!(!Field::ContentOpacity.reset(&mut preferences));
-    assert_eq!(preferences.appearance.content_opacity, 0.9999999);
+    assert_eq!(preferences.appearance.content_opacity, rounded);
 }

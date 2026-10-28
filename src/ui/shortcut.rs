@@ -140,16 +140,18 @@ impl HeldModifier {
     }
 }
 
-#[derive(IntoElement)]
+#[derive(Clone, IntoElement)]
 pub struct ShortcutBadge {
     source: BadgeSource,
 }
 
 /// Where a badge's keys come from: a control's own shortcut, resolved in its
 /// declared scope, or a binding already resolved for the current context.
+#[derive(Clone)]
 enum BadgeSource {
     Shortcut(Shortcut),
     Binding(KeyBinding),
+    Gesture(Vec<SharedString>),
 }
 
 impl ShortcutBadge {
@@ -175,6 +177,7 @@ impl ShortcutBadge {
         let binding = match &self.source {
             BadgeSource::Shortcut(shortcut) => shortcut.binding(window),
             BadgeSource::Binding(binding) => Some(binding.clone()),
+            BadgeSource::Gesture(keys) => return keys.clone(),
         };
         key_labels(binding.as_ref())
     }
@@ -274,44 +277,83 @@ impl RenderOnce for Keycap {
     }
 }
 
-#[derive(Clone)]
-pub(super) struct Hint {
+#[derive(Clone, IntoElement)]
+pub struct ShortcutHint {
     label: SharedString,
-    shortcut: Option<Shortcut>,
+    badge: Option<ShortcutBadge>,
 }
 
-impl Hint {
+impl ShortcutHint {
+    pub fn label(&self) -> &str {
+        self.label.as_ref()
+    }
+    pub fn plain(label: impl Into<SharedString>) -> Self {
+        Self::command(label.into(), None)
+    }
+    pub fn new(label: impl Into<SharedString>, shortcut: impl Into<Shortcut>) -> Self {
+        Self::shortcut(label.into(), shortcut.into())
+    }
+
+    pub fn binding(label: impl Into<SharedString>, binding: KeyBinding) -> Self {
+        Self {
+            label: label.into(),
+            badge: Some(ShortcutBadge::binding(binding)),
+        }
+    }
+
+    /// Mouse gestures have no keyboard action binding, but share the same keycaps.
+    pub fn gesture(
+        label: impl Into<SharedString>,
+        keys: impl IntoIterator<Item = SharedString>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            badge: Some(ShortcutBadge {
+                source: BadgeSource::Gesture(keys.into_iter().collect()),
+            }),
+        }
+    }
+
     pub(super) fn command(label: SharedString, command: Option<Shortcut>) -> Self {
         Self {
             label,
-            shortcut: command,
+            badge: command.map(ShortcutBadge::bound),
         }
     }
 
     pub(super) fn shortcut(label: SharedString, shortcut: Shortcut) -> Self {
         Self {
             label,
-            shortcut: Some(shortcut),
+            badge: Some(ShortcutBadge::bound(shortcut)),
         }
     }
 
-    pub(super) fn builder(self) -> impl Fn(&mut Window, &mut App) -> AnyView {
+    pub fn builder(self) -> impl Fn(&mut Window, &mut App) -> AnyView {
         move |window, cx| {
             let hint = self.clone();
             super::tooltip::element(
                 "command-tooltip",
                 hint.label.clone(),
-                move |_, _| hint.content().into_any_element(),
+                move |_, _| hint.clone().into_any_element(),
                 window,
                 cx,
             )
         }
     }
+}
 
-    fn content(&self) -> Div {
-        let badge = self.shortcut.clone().map(ShortcutBadge::bound);
+impl RenderOnce for ShortcutHint {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let badge = self.badge.filter(|badge| !badge.labels(window).is_empty());
         el! {
-            .div { flex; items_center; gap: HINT_GAP.px } [$(self.label.clone()), ..badge]
+            .div {
+                flex; items_center; min_w_0; gap: HINT_GAP.px;
+                text_size: SMALL; text_color: $(cx.theme().popover_foreground);
+                line_height: $(relative(1.));
+            } [
+                .div { min_w_0; flex_1 } [$(self.label)],
+                ..$(badge.map(|badge| el! { .div { flex_shrink_0 } [badge] })),
+            ]
         }
     }
 }
@@ -325,7 +367,7 @@ pub fn command_tooltip(
     label: impl Into<SharedString>,
     command: impl Into<Shortcut>,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    Hint::command(label.into(), Some(command.into())).builder()
+    ShortcutHint::command(label.into(), Some(command.into())).builder()
 }
 
 /// A tooltip holding a control's short label and an already-resolved binding.
@@ -337,5 +379,5 @@ pub fn shortcut_tooltip(
     label: impl Into<SharedString>,
     shortcut: Shortcut,
 ) -> impl Fn(&mut Window, &mut App) -> AnyView {
-    Hint::shortcut(label.into(), shortcut).builder()
+    ShortcutHint::shortcut(label.into(), shortcut).builder()
 }

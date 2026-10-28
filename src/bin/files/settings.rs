@@ -10,8 +10,7 @@ pub use pages::Page;
 pub use storage::{load_startup, save};
 
 use controls::{
-    Choice, ChoiceControl, ChoiceEvent, ChoiceState, FONT_SIZE_RANGE, Field, NumberControl,
-    PERCENTAGE_RANGE,
+    Choice, ChoiceControl, ChoiceEvent, ChoiceState, Field, NumberControl, PERCENTAGE_RANGE,
 };
 use gds_uim::el;
 use gpui_kit::{
@@ -53,13 +52,15 @@ pub struct SidebarPreferences {
     pub volumes_collapsed: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, gds::ConfigEditor)]
 #[serde(default)]
 pub struct Preferences {
     pub appearance: theme::Appearance,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[setting(label = "form-language")]
     pub language: Option<Language>,
     /// How timestamps are displayed in this application.
+    #[setting(label = "form-time-format")]
     pub time_format: time::Format,
     /// Font family and base text size for this application.
     #[serde(skip_serializing_if = "typography::Preferences::is_default")]
@@ -118,16 +119,12 @@ pub struct View {
     /// One focus target per page, so page cycling keeps keyboard navigation
     /// inside the visible page and blurs controls on the page being left.
     page_focus: [FocusHandle; 5],
-    language: ChoiceControl<Option<Language>>,
-    time_format: ChoiceControl<time::Format>,
+    general: Entity<PreferencesEditor>,
     source: ChoiceControl<theme::Source>,
     mode: ChoiceControl<theme::ModePreference>,
     content_opacity: NumberControl,
     sidebar_opacity: NumberControl,
-    /// Installed families, enumerated once per settings view.
-    font_families: Vec<String>,
-    font_family: ChoiceControl<Option<String>>,
-    font_size: NumberControl,
+    font: Entity<typography::PreferencesEditor>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -140,20 +137,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let language = ChoiceControl::new(
-            Choice::<Option<Language>>::catalog(cx),
-            &preferences.language,
-            true,
-            window,
-            cx,
-        );
-        let time_format = ChoiceControl::new(
-            Choice::<time::Format>::catalog(cx),
-            &preferences.time_format,
-            false,
-            window,
-            cx,
-        );
+        let general = cx.new(|cx| PreferencesEditor::new(preferences.clone(), window, cx));
         let source = ChoiceControl::new(
             Choice::<theme::Source>::catalog(cx),
             &preferences.appearance.source,
@@ -178,26 +162,17 @@ impl View {
             PERCENTAGE_RANGE,
             cx,
         );
-        let font_families = typography::installed_families(cx);
-        let font_family = ChoiceControl::new(
-            Choice::<Option<String>>::fonts(preferences.font.family.as_deref(), &font_families, cx),
-            &preferences.font.family,
-            true,
-            window,
-            cx,
-        );
-        let font_size = NumberControl::new(preferences.font.size, FONT_SIZE_RANGE, cx);
+        let font =
+            cx.new(|cx| typography::PreferencesEditor::new(preferences.font.clone(), window, cx));
         let mut subscriptions = vec![
-            cx.subscribe_in(&language.state, window, Self::on_language_confirm),
-            cx.subscribe_in(&time_format.state, window, Self::on_time_format_confirm),
+            cx.subscribe_in(&general, window, Self::on_general_edited),
             cx.subscribe_in(&source.state, window, Self::on_source_confirm),
             cx.subscribe_in(&mode.state, window, Self::on_mode_confirm),
-            cx.subscribe_in(&font_family.state, window, Self::on_font_family_confirm),
+            cx.subscribe_in(&font, window, Self::on_font_edited),
         ];
         for (field, state) in [
             (Field::ContentOpacity, content_opacity.state.clone()),
             (Field::SidebarOpacity, sidebar_opacity.state.clone()),
-            (Field::FontSize, font_size.state.clone()),
         ] {
             subscriptions.push(cx.subscribe_in(&state, window, Self::on_slider_change(field)));
             // Kit accessibility increments notify the state without a Change event.
@@ -208,15 +183,12 @@ impl View {
             sidebar_width,
             page: Page::General,
             page_focus: std::array::from_fn(|_| cx.focus_handle()),
-            language,
-            time_format,
+            general,
             source,
             mode,
             content_opacity,
             sidebar_opacity,
-            font_families,
-            font_family,
-            font_size,
+            font,
             _subscriptions: subscriptions,
         }
     }
@@ -264,18 +236,9 @@ impl View {
     }
 
     fn sync_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.language.sync(
-            Choice::<Option<Language>>::catalog(cx),
-            &self.preferences.language,
-            window,
-            cx,
-        );
-        self.time_format.sync(
-            Choice::<time::Format>::catalog(cx),
-            &self.preferences.time_format,
-            window,
-            cx,
-        );
+        self.general.update(cx, |editor, cx| {
+            editor.set_value(self.preferences.clone(), window, cx)
+        });
         self.source.sync(
             Choice::<theme::Source>::catalog(cx),
             &self.preferences.appearance.source,
@@ -298,17 +261,9 @@ impl View {
             window,
             cx,
         );
-        self.font_family.sync(
-            Choice::<Option<String>>::fonts(
-                self.preferences.font.family.as_deref(),
-                &self.font_families,
-                cx,
-            ),
-            &self.preferences.font.family,
-            window,
-            cx,
-        );
-        self.font_size.sync(self.preferences.font.size, window, cx);
+        self.font.update(cx, |editor, cx| {
+            editor.set_value(self.preferences.font.clone(), window, cx)
+        });
     }
 
     fn change(
@@ -325,32 +280,28 @@ impl View {
         cx.notify();
     }
 
-    fn on_language_confirm(
+    fn on_general_edited(
         &mut self,
-        _: &Entity<ChoiceState<Option<Language>>>,
-        event: &ChoiceEvent<Option<Language>>,
+        _: &Entity<PreferencesEditor>,
+        event: &gds::ui::settings::form::Changed<Preferences>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let ChoiceEvent::Confirm(Some(value)) = event {
-            self.change(window, cx, |preferences| {
-                Field::replace(&mut preferences.language, *value)
-            });
-        }
+        self.change(window, cx, |preferences| {
+            Field::replace(preferences, event.value.clone())
+        });
     }
 
-    fn on_time_format_confirm(
+    fn on_font_edited(
         &mut self,
-        _: &Entity<ChoiceState<time::Format>>,
-        event: &ChoiceEvent<time::Format>,
+        _: &Entity<typography::PreferencesEditor>,
+        event: &gds::ui::settings::form::Changed<typography::Preferences>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let ChoiceEvent::Confirm(Some(value)) = event {
-            self.change(window, cx, |preferences| {
-                Field::replace(&mut preferences.time_format, *value)
-            });
-        }
+        self.change(window, cx, |preferences| {
+            Field::replace(&mut preferences.font, event.value.clone())
+        });
     }
 
     fn on_source_confirm(
@@ -377,21 +328,6 @@ impl View {
         if let ChoiceEvent::Confirm(Some(value)) = event {
             self.change(window, cx, |preferences| {
                 Field::replace(&mut preferences.appearance.mode, *value)
-            });
-        }
-    }
-
-    fn on_font_family_confirm(
-        &mut self,
-        _: &Entity<ChoiceState<Option<String>>>,
-        event: &ChoiceEvent<Option<String>>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let ChoiceEvent::Confirm(Some(value)) = event {
-            let value = value.clone();
-            self.change(window, cx, |preferences| {
-                Field::replace(&mut preferences.font.family, value)
             });
         }
     }
@@ -457,7 +393,6 @@ impl View {
         match field {
             Field::ContentOpacity => &self.content_opacity,
             Field::SidebarOpacity => &self.sidebar_opacity,
-            Field::FontSize => &self.font_size,
             _ => unreachable!("only numeric fields own numeric controls"),
         }
     }

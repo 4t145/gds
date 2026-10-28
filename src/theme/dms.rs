@@ -72,11 +72,15 @@ pub(super) fn parse(
     palette.sidebar_foreground = palette.foreground;
     palette.surface = optional(colors, "surface_container")?.unwrap_or(palette.content);
     palette.surface_foreground = palette.foreground;
+    palette.panel = optional(colors, "surface_container_high")?.unwrap_or(palette.surface);
+    palette.panel_foreground = palette.foreground;
     palette.muted_foreground =
         optional(colors, "on_surface_variant")?.unwrap_or(palette.foreground);
     palette.border = optional(colors, "outline_variant")?
         .or(optional(colors, "outline")?)
         .unwrap_or(palette.muted_foreground);
+    palette.outline = optional(colors, "outline")?.unwrap_or(palette.border);
+    palette.shadow = optional(colors, "shadow")?.unwrap_or(palette.shadow);
     palette.primary = required(colors, "primary")?;
     palette.primary_foreground = required(colors, "on_primary")?;
     palette.selection = palette.primary;
@@ -85,7 +89,7 @@ pub(super) fn parse(
         palette.selection = required(colors, "primary_container")?;
         palette.selection_foreground = required(colors, "on_primary_container")?;
     }
-    palette.tooltip = optional(colors, "surface_container_high")?.unwrap_or(palette.surface);
+    palette.tooltip = palette.panel;
     palette.tooltip_foreground = palette.foreground;
     palette.link = palette.primary;
     if colors.contains_key("error") || colors.contains_key("on_error") {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::storage::{DeviceKind, Volume};
-use gds::ui::{ContentPage, IconButton, NavItem, ShortcutBadge, capacity::CapacityBar};
+use gds::ui::{ContentPage, IconButton, NavItem, capacity::CapacityBar};
 use gpui_kit::component::{
     Sizable,
     button::{Button, ButtonVariants},
@@ -10,20 +10,11 @@ use gpui_kit::component::{
 
 const GAP: f32 = 8.;
 const PAGE_PADDING: f32 = 24.;
-const MENU_WIDTH: f32 = 220.;
-
 fn menu_row(
     label: SharedString,
     command: Option<Command>,
-) -> impl Fn(&mut Window, &mut App) -> Div {
-    move |_, _| {
-        el! {
-            .div { flex; items_center; w_full; min_w: MENU_WIDTH.px; gap: PAGE_PADDING.px } [
-                .div { flex_1; min_w_0; truncate } [$(label.clone())],
-                @if (let Some(command) = command) command.ShortcutBadge::new, @end,
-            ]
-        }
-    }
+) -> impl Fn(&mut Window, &mut App) -> AnyElement {
+    ui::menu::row(label, command.map(Into::into))
 }
 
 pub(super) fn device_icon(volume: &Volume, snapshot: &Snapshot) -> IconName {
@@ -127,7 +118,7 @@ impl Browser {
         let busy = self.device_is_busy(&volume.id, cx);
         let details = if volume.mount_points.is_empty() {
             (!compact).then(|| el! {
-                .div { px: GAP.px; pb: GAP.px; text_xs; text_color: $cx.theme().muted_foreground } [$i18n::text("device-not-mounted", cx)]
+                .div { px: GAP.px; pb: GAP.px; text_xs; text_color: $(if selected { cx.theme().sidebar_accent_foreground } else { cx.theme().muted_foreground }) } [$i18n::text("device-not-mounted", cx)]
             }.into_any_element())
         } else {
             let bar = Self::capacity_bar(
@@ -135,7 +126,8 @@ impl Browser {
                 self.storage.read(cx).capacity(&volume.id),
                 compact,
                 cx,
-            );
+            )
+            .selected(selected);
             Some(el! { .div { px: GAP.px; w_full; min_w_0 } [bar] }.into_any_element())
         };
         let nav = NavItem::new(
@@ -216,6 +208,7 @@ impl Browser {
         mut menu: PopupMenu,
         cx: &App,
     ) -> PopupMenu {
+        menu = ui::menu::popup(menu);
         let Some(volume) = self.storage.read(cx).snapshot.volume(id) else {
             return menu;
         };

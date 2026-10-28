@@ -81,7 +81,7 @@ impl Workspace {
                 };
             } [
                 ("sidebar-toggle", IconName::PanelLeft).layout::icon_button {
-                    tooltip: $(crate::i18n::tr!("sidebar-toggle"));
+                    tooltip_with_shortcut: $(crate::i18n::tr!("sidebar-toggle")), $(shortcuts::shortcut(ToggleSidebar));
                     on_click: $(cx.listener(Self::on_sidebar_toggle));
                 },
                 $(self.workspace_button(cx)),

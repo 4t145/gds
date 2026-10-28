@@ -2550,6 +2550,7 @@ dependencies = [
  "fluent-bundle",
  "futures",
  "futures-lite",
+ "gds-settings-derive",
  "gds-uim",
  "globset",
  "gpui-kit",
@@ -2602,6 +2603,15 @@ dependencies = [
  "which",
  "wl-clipboard-rs",
  "zbus",
+]
+
+[[package]]
+name = "gds-settings-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

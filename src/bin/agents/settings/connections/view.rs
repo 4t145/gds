@@ -124,6 +124,8 @@ impl Page {
                         $(crate::i18n::tr!("connections-discover")),
                     ],
                     ("connection-discovery-cancel", IconName::X, $(crate::i18n::tr!("connections-cancel"))).ui::icon_action {
+                        tooltip_with_shortcut: $(crate::i18n::tr!("connections-cancel")),
+                            $(gds::ui::Shortcut::new(Box::new(CancelEditing), Some("BasConnections")));
                         on_click: $(cx.listener(|this, _, window, cx| this.cancel(window, cx)));
                     },
                 ],
@@ -256,7 +258,7 @@ impl Page {
                     flex_1;
                     min_w_0;
                 } [
-                    (input).Input::new {
+                    (input, cx).gds::ui::field::input {
                         small;
                         w_full;
                     },
@@ -277,7 +279,10 @@ impl Page {
             Self::field(
                 "connection-name",
                 crate::i18n::tr!("connections-name"),
-                Input::new(&self.name).small().w_full().into_any_element(),
+                gds::ui::field::input(&self.name, cx)
+                    .small()
+                    .w_full()
+                    .into_any_element(),
             ),
             Self::field(
                 "connection-kind",
@@ -289,8 +294,11 @@ impl Page {
             Self::field(
                 "connection-target",
                 self.transport.address_label(),
-                ui::input::placeholder(&self.target, Input::new(&self.target).small().w_full())
-                    .into_any_element(),
+                ui::input::placeholder(
+                    &self.target,
+                    gds::ui::field::input(&self.target, cx).small().w_full(),
+                )
+                .into_any_element(),
             )
         });
         let tls: Vec<_> = if self.transport == Transport::Mtls {
@@ -302,7 +310,7 @@ impl Page {
                 Self::field(
                     "connection-tls-server-name",
                     crate::i18n::tr!("connections-tls-server-name"),
-                    Input::new(&self.tls_server_name)
+                    gds::ui::field::input(&self.tls_server_name, cx)
                         .small()
                         .w_full()
                         .into_any_element(),
@@ -334,6 +342,8 @@ impl Page {
                         $(if adding { crate::i18n::tr!("connections-add") } else { crate::i18n::tr!("connections-edit-title") }),
                     ],
                     ("connection-cancel", IconName::X, $(crate::i18n::tr!("connections-cancel"))).ui::icon_action {
+                        tooltip_with_shortcut: $(crate::i18n::tr!("connections-cancel")),
+                            $(gds::ui::Shortcut::new(Box::new(CancelEditing), Some("BasConnectionEditor")));
                         on_click: $(cx.listener(|this, _, window, cx| this.cancel(window, cx)));
                     },
                 ],
@@ -345,7 +355,7 @@ impl Page {
                     ..address,
                     ..tls,
                     $(Self::field("connection-note", crate::i18n::tr!("connections-note"),
-                            Input::new(&self.note).small().w_full().into_any_element())),
+                            gds::ui::field::input(&self.note, cx).small().w_full().into_any_element())),
                 ],
                 ..$(self.error_view(cx)),
                 .div {

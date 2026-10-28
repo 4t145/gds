@@ -76,7 +76,6 @@ pub(crate) fn menu_item(profile: &crate::configuration::ConnectionProfile) -> Po
     let address = endpoint(&profile.target);
     let hint = format!("{name} · {}", tooltip(&profile.target));
     let id = format!("connection-menu-{}", profile.id);
-    let target = profile.target.clone();
     PopupMenuItem::element(move |_, cx| {
         let hint = hint.clone();
         gds_uim::el! {
@@ -89,35 +88,22 @@ pub(crate) fn menu_item(profile: &crate::configuration::ConnectionProfile) -> Po
                 flex;
                 flex_col;
                 gap_1;
+                py_1;
                 min_w_0;
                 w_0;
                 overflow_hidden;
                 hoverable_tooltip: $(move |window, cx| crate::ui::tooltip::view(hint.clone(), window, cx));
             } [
                 .div {
+                    id: $(format!("{id}-name"));
+                    test_support;
+                    role: Role::Label;
+                    aria_label: $(name.clone());
                     w_full;
                     min_w_0;
-                    flex;
-                    items_center;
-                    gap_2;
-                    text_base;
-                } [
-                    $(icon(&target)) {
-                        size: crate::ui::ICON.px;
-                        flex_shrink_0;
-                    },
-                    .div {
-                        id: $(format!("{id}-name"));
-                        test_support;
-                        role: Role::Label;
-                        aria_label: $(name.clone());
-                        flex_1;
-                        min_w_0;
-                        truncate;
-                    } [
-                        $(name.clone()),
-                    ],
-                ],
+                    truncate;
+                    text_size: crate::ui::SMALL;
+                } [$(name.clone())],
                 .div {
                     id: $(format!("{id}-endpoint"));
                     test_support;
@@ -134,4 +120,5 @@ pub(crate) fn menu_item(profile: &crate::configuration::ConnectionProfile) -> Po
             ]
         }
     })
+    .icon(icon(&profile.target).self_start().mt(rems(0.5)))
 }

@@ -173,6 +173,50 @@ fn dms_selects_light_when_the_export_is_active_dark() {
 }
 
 #[test]
+fn dms_preserves_surface_levels_boundaries_and_paired_selection_in_native_components() {
+    let roles = serde_json::json!({
+        "surface": "#101010", "on_surface": "#eeeeee",
+        "surface_container_low": "#181818", "surface_container": "#202020",
+        "surface_container_high": "#282828", "on_surface_variant": "#bbbbbb",
+        "outline": "#888888", "outline_variant": "#444444", "shadow": "#010203",
+        "primary": "#aabbcc", "on_primary": "#112233",
+        "primary_container": "#345678", "on_primary_container": "#fedcba"
+    });
+    let source = serde_json::json!({"mode": "dark", "colors": {"dark": roles}}).to_string();
+    let parsed = dms::parse(&source, Path::new("dms-colors.json"), ModePreference::Dark)
+        .expect("complete Material color roles");
+    assert_eq!(parsed.palette.sidebar, color(0x181818));
+    assert_eq!(parsed.palette.surface, color(0x202020));
+    assert_eq!(parsed.palette.panel, color(0x282828));
+    assert_eq!(parsed.palette.panel_foreground, color(0xeeeeee));
+    assert_eq!(parsed.palette.shadow, color(0x010203));
+    let mut native = gpui_kit::component::ThemeColor::default();
+    parsed.palette.apply_to(&mut native);
+    assert_eq!(native.border, color(0x444444));
+    assert_eq!(native.input, color(0x888888));
+    assert_eq!(native.sidebar_accent, color(0x345678));
+    assert_eq!(native.sidebar_accent_foreground, color(0xfedcba));
+    assert_eq!(native.table_active, native.sidebar_accent);
+    assert_eq!(native.accent_foreground, native.sidebar_accent_foreground);
+    assert_eq!(native.popover, parsed.palette.panel);
+}
+
+#[test]
+fn dms_missing_optional_surface_roles_use_the_imported_palette() {
+    let parsed = dms::parse(
+        &dms_export("dark"),
+        Path::new("dms-colors.json"),
+        ModePreference::Dark,
+    )
+    .expect("minimal export");
+    let colors = parsed.palette;
+    assert_eq!(colors.surface, colors.content);
+    assert_eq!(colors.panel, colors.content);
+    assert_eq!(colors.panel_foreground, colors.foreground);
+    assert_eq!(colors.outline, colors.border);
+}
+
+#[test]
 fn dms_missing_requested_scheme_does_not_use_the_available_other_scheme() {
     for (requested, source, missing_field) in [
         (
@@ -254,6 +298,8 @@ fn qt_role_arrays_map_paired_colors_and_preserve_disabled_text() {
     assert_eq!(palette.selection, color(12 * 0x010101));
     assert_eq!(palette.selection_foreground, color(13 * 0x010101));
     assert_eq!(palette.muted_foreground, color(46 * 0x010101));
+    assert_eq!(palette.panel, palette.surface);
+    assert_eq!(palette.panel_foreground, palette.surface_foreground);
 }
 
 #[test]
