@@ -15,6 +15,7 @@ actions!(
 struct Host {
     view: Entity<View>,
     focus: FocusHandle,
+    next_focus: FocusHandle,
     workspace_actions: usize,
     settings: usize,
     toggles: usize,
@@ -26,10 +27,18 @@ impl Render for Host {
             .size_full()
             .key_context("TerminalFocusTest")
             .track_focus(&self.focus)
+            .tab_group()
+            .tab_index(0)
             .on_action(cx.listener(|host, _: &WorkspaceOnly, _, _| host.workspace_actions += 1))
             .on_action(cx.listener(|host, _: &Settings, _, _| host.settings += 1))
             .on_action(cx.listener(|host, _: &Toggle, _, _| host.toggles += 1))
             .on_action(cx.listener(|host, _: &ReturnToHost, _, _| host.exits += 1))
+            .child(
+                div()
+                    .track_focus(&self.next_focus)
+                    .tab_index(0)
+                    .size(px(10.)),
+            )
             .child(self.view.clone())
     }
 }
@@ -38,6 +47,7 @@ impl Render for Host {
 fn single_terminal_respects_its_hosts_key_map(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
+        crate::terminal::init(cx);
         crate::i18n::install(crate::i18n::Language::English, cx).expect("test messages");
         // The host, not the reusable terminal, chooses all these bindings.
         cx.bind_keys([
@@ -62,7 +72,8 @@ fn single_terminal_respects_its_hosts_key_map(cx: &mut TestAppContext) {
         let view = cx.new(|cx| View::new(session.clone(), Preferences::default(), window, cx));
         let entity = cx.new(|cx| Host {
             view,
-            focus: cx.focus_handle(),
+            focus: cx.focus_handle().tab_stop(true),
+            next_focus: cx.focus_handle().tab_stop(true),
             workspace_actions: 0,
             settings: 0,
             toggles: 0,
@@ -95,10 +106,163 @@ fn single_terminal_respects_its_hosts_key_map(cx: &mut TestAppContext) {
     session.terminate();
 }
 
+fn wait_for_pty(mut ready: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
+    while !ready() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "PTY response timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn screen(session: &Session) -> String {
+    use alacritty_terminal::{
+        grid::Dimensions,
+        index::{Column, Line},
+    };
+    session.with_term(|term| {
+        let grid = term.grid();
+        (0..term.screen_lines())
+            .flat_map(|row| {
+                (0..term.columns()).map(move |column| grid[Line(row as i32)][Column(column)].c)
+            })
+            .collect()
+    })
+}
+
+#[gpui_kit::test]
+fn tab_routes_to_pty_and_outside_terminal_traversal_still_works(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::terminal::init(cx);
+        crate::i18n::install(crate::i18n::Language::English, cx).expect("test messages");
+    });
+    let session = Session::spawn(SpawnOptions {
+        cwd: std::env::temp_dir(),
+        args: vec!["-c".into(),
+            "stty -echo -icanon min 1 time 0; printf '\\033]0;ready\\007'; dd bs=1 count=4 2>/dev/null | od -An -tx1".into()],
+        ..SpawnOptions::default()
+    }).expect("raw PTY for focus routing");
+    wait_for_pty(|| session.title().as_deref() == Some("ready"));
+    let mut host = None;
+    let window = cx.open_window(size(px(800.), px(480.)), |window, cx| {
+        let view = cx.new(|cx| View::new(session.clone(), Preferences::default(), window, cx));
+        let entity = cx.new(|cx| Host {
+            view,
+            focus: cx.focus_handle().tab_stop(true),
+            next_focus: cx.focus_handle().tab_stop(true),
+            workspace_actions: 0,
+            settings: 0,
+            toggles: 0,
+            exits: 0,
+        });
+        host = Some(entity.clone());
+        Root::new(entity, window, cx)
+    });
+    let host = host.expect("host entity");
+    cx.update_window(window.into(), |_, window, cx| {
+        let outside = host.read(cx).focus.clone();
+        let next = host.read(cx).next_focus.clone();
+        outside.focus(window, cx);
+        window.render_frame(cx);
+        window.press("tab", cx);
+        assert!(
+            next.is_focused(window),
+            "root Tab must still traverse outside the terminal"
+        );
+        window.press("shift-tab", cx);
+        assert!(
+            outside.is_focused(window),
+            "root reverse traversal must still work"
+        );
+        let inside = host.read(cx).view.read(cx).focus_handle();
+        inside.focus(window, cx);
+        window.render_frame(cx);
+        window.press("tab", cx);
+        assert!(
+            inside.is_focused(window),
+            "Tab must not leave terminal input"
+        );
+        window.press("shift-tab", cx);
+        assert!(
+            inside.is_focused(window),
+            "Shift+Tab must not leave terminal input"
+        );
+    })
+    .expect("native key dispatch");
+    wait_for_pty(|| screen(&session).contains("09 1b 5b 5a"));
+    session.terminate();
+}
+
+#[gpui_kit::test]
+fn tab_completes_a_filename_in_a_real_interactive_shell(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::terminal::init(cx);
+        crate::i18n::install(crate::i18n::Language::English, cx).expect("test messages");
+    });
+    let account_shell = nix::unistd::User::from_uid(nix::unistd::Uid::current())
+        .expect("test account lookup")
+        .map(|user| user.shell);
+    let bash = account_shell
+        .into_iter()
+        .chain(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .map(|path| path.join("bash")),
+        )
+        .find(|path| {
+            path.file_name().is_some_and(|name| name == "bash")
+                && std::process::Command::new(path)
+                    .args(["--noprofile", "--norc", "-c", "type bind >/dev/null 2>&1"])
+                    .status()
+                    .is_ok_and(|status| status.success())
+        })
+        .expect("shell completion integration test requires readline-enabled bash");
+    let directory = tempfile::tempdir().expect("completion directory");
+    std::fs::write(
+        directory.path().join("gds-completion-token"),
+        "COMPLETION_SUCCEEDED\n",
+    )
+    .expect("completion fixture");
+    let session = Session::spawn(SpawnOptions {
+        cwd: directory.path().to_owned(),
+        shell: Some(bash),
+        args: vec!["--noprofile".into(), "--norc".into(), "-i".into()],
+        ..SpawnOptions::default()
+    })
+    .expect("interactive bash for completion");
+    session
+        .write(b"PS1=''; stty -echo; bind '\"\\C-i\": complete'; printf '\\033]0;ready\\007'\r")
+        .expect("initialize isolated readline session");
+    wait_for_pty(|| session.title().as_deref() == Some("ready"));
+    let mut terminal = None;
+    let window = cx.open_window(size(px(800.), px(480.)), |window, cx| {
+        let view = cx.new(|cx| View::new(session.clone(), Preferences::default(), window, cx));
+        terminal = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let terminal = terminal.expect("terminal view");
+    cx.update_window(window.into(), |_, window, cx| {
+        let focus = terminal.read(cx).focus_handle();
+        focus.focus(window, cx);
+        window.render_frame(cx);
+        window.input("cat gds-completion-t", cx);
+        window.press("tab", cx);
+        assert!(focus.is_focused(window));
+        window.press("enter", cx);
+    })
+    .expect("shell completion key dispatch");
+    wait_for_pty(|| screen(&session).contains("COMPLETION_SUCCEEDED"));
+    session.terminate();
+}
+
 #[gpui_kit::test]
 fn changing_terminal_typography_updates_existing_grid_metrics(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
+        crate::terminal::init(cx);
         crate::i18n::install(crate::i18n::Language::English, cx).expect("test messages");
     });
     let session = Session::spawn(SpawnOptions {
