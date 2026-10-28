@@ -6,7 +6,7 @@ use gpui_kit::{
     App, AppContext, Context, Entity, FocusHandle, IntoElement, Render, SharedString, Subscription,
     TestSupportExt, Window,
     assets::IconName,
-    component::{ActiveTheme, Disableable, Icon, WindowExt},
+    component::{ActiveTheme, Disableable, Icon, Selectable, WindowExt, button::ButtonVariants},
     div,
     prelude::*,
     px,
@@ -286,12 +286,20 @@ impl Panel {
         });
     }
 
+    pub fn active_title(&self, cx: &App) -> SharedString {
+        self.entries
+            .iter()
+            .find(|entry| Some(entry.id) == self.active)
+            .map(|entry| Self::title(entry, cx))
+            .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into())
+    }
+
     fn title(entry: &Entry, cx: &App) -> SharedString {
         if let Some(title) = entry
             .terminal
             .read(cx)
             .title(cx)
-            .filter(|title| !title.is_empty())
+            .filter(|title| !title.trim().is_empty())
         {
             return title;
         }
@@ -321,16 +329,24 @@ impl Panel {
         };
         let origin = crate::i18n::tr!("local-terminal-started-in", path = cwd);
         let hint = format!("{title} · {origin} · {status}");
+        let colors = gds::theme::Colors::current(cx);
+        let selected = self.active == Some(id);
         let row = div()
             .id(("agents-terminal-tab", id))
             .test_support()
             .flex()
             .items_center()
             .min_w_0()
-            .h(px(crate::ui::CONTROL))
+            .h(px(gds::ui::SIDEBAR_ITEM_HEIGHT))
+            .rounded(px(6.))
             .px_2()
             .gap_1()
-            .when(self.active == Some(id), |row| row.bg(cx.theme().selection))
+            .text_color(colors.sidebar_foreground)
+            .hover(|row| row.bg(colors.hover()))
+            .when(selected, |row| {
+                row.bg(colors.selection)
+                    .text_color(colors.selection_foreground)
+            })
             .tooltip(move |window, cx| gds::ui::tooltip::view(hint.clone(), window, cx))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 panel.active = Some(id);
@@ -346,6 +362,7 @@ impl Panel {
                 .child(
                     Button::icon_button(("agents-terminal-close", id))
                         .control_icon(IconName::X)
+                        .selected(selected)
                         .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
                         .on_click(cx.listener(move |panel, _, window, cx| {
                             cx.stop_propagation();
@@ -371,6 +388,9 @@ impl Render for Panel {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .p(px(gds::ui::SIDEBAR_PADDING))
+            .gap_1()
+            .text_color(gds::theme::Colors::current(cx).sidebar_foreground)
             .bg(gds::theme::sidebar_background(cx))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
@@ -383,7 +403,13 @@ impl Render for Panel {
                     .map(|entry| self.tab(entry, collapsed, cx)),
             )
             .child(
-                Button::icon_button("agents-terminal-new")
+                Button::new("agents-terminal-new")
+                    .ghost()
+                    .h(px(gds::ui::ICON_BUTTON_SIZE))
+                    .w_full()
+                    .when(!collapsed, |button| {
+                        button.label(crate::i18n::tr!("local-terminal-new"))
+                    })
                     .control_icon(IconName::Plus)
                     .disabled(self.cwd.is_none() || self.closing)
                     .tooltip_with_shortcut(

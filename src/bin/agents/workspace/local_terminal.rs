@@ -84,6 +84,7 @@ fn local_pipe(name: &str) -> bool {
 
 pub(super) struct Terminals {
     panels: HashMap<Group, Entity<Panel>>,
+    changes: Vec<Subscription>,
     pub visible: bool,
     pub split: Entity<gds::ui::split::State>,
 }
@@ -92,6 +93,7 @@ impl Terminals {
     pub fn new(cx: &mut App) -> Self {
         Self {
             panels: HashMap::new(),
+            changes: Vec::new(),
             visible: false,
             split: cx.new(|cx| {
                 let mut split = gds::ui::split::State::new(None, 160., 140., cx);
@@ -132,6 +134,9 @@ impl Workspace {
                 panel.set_cwd(Some(group.cwd.clone()), cx);
                 panel
             });
+            self.terminals
+                .changes
+                .push(cx.observe(&panel, |_, _, cx| cx.notify()));
             self.terminals.panels.insert(group.clone(), panel);
         }
     }
@@ -227,6 +232,10 @@ impl Workspace {
         };
         let frame = gds::ui::Frame::new(sidebar_width);
         let collapsed = !self.window.sidebar_visible;
+        let active_title = self
+            .terminal_panel()
+            .map(|panel| panel.read(cx).active_title(cx))
+            .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into());
         let heading = div()
             .id("agents-terminal-heading")
             .flex()
@@ -255,11 +264,27 @@ impl Workspace {
         let controls = div()
             .flex()
             .items_center()
-            .justify_end()
             .h_full()
-            .px_2()
+            .min_w_0()
+            .px_3()
+            .gap_2()
             .child(
-                layout::icon_button("hide-local-terminal", IconName::X)
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .child(active_title),
+            )
+            .child(
+                layout::icon_button("terminal-settings", IconName::Settings)
+                    .tooltip(crate::i18n::tr!("settings-terminal"))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.open_terminal_settings(window, cx)),
+                    ),
+            )
+            .child(
+                layout::icon_button("hide-local-terminal", IconName::Terminal)
                     .tooltip(crate::i18n::tr!("local-terminal-toggle"))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))),
             );

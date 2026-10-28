@@ -26,6 +26,7 @@ const HEADER_HEIGHT: f32 = 36.;
 pub(super) struct Dock {
     pub panel: Entity<Panel>,
     cwd: Option<PathBuf>,
+    _changes: Subscription,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,9 +107,11 @@ impl Browser {
             panel.set_cwd(cwd.clone(), cx);
             panel
         });
+        let changes = cx.observe(&panel, |_, _, cx| cx.notify());
         self.tab_slot_mut(owner)?.terminal = Some(Dock {
             panel: panel.clone(),
             cwd,
+            _changes: changes,
         });
         Some(panel)
     }
@@ -234,7 +237,7 @@ impl Browser {
             ))
             .on_click(cx.listener(Self::maximize_terminal));
         let hide = ui::IconButton::new("files-terminal-hide")
-            .icon(IconName::ChevronDown)
+            .icon(IconName::Terminal)
             .label(i18n::text("files-terminal-hide", cx))
             .command(Command::Terminal)
             .on_click(cx.listener(Self::click_command(Command::Terminal)));
@@ -260,14 +263,33 @@ impl Browser {
             .when(!self.sidebar_collapsed, |this| {
                 this.child(div().min_w_0().truncate().child(title))
             });
+        let active_title = panel.read(cx).active_title(cx);
         let controls = div()
             .flex()
             .items_center()
-            .justify_end()
             .h_full()
             .min_w_0()
-            .px_2()
+            .px_3()
             .gap_2()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .child(active_title),
+            )
+            .child(
+                ui::IconButton::new("files-terminal-settings")
+                    .icon(IconName::Settings)
+                    .label(i18n::text("settings-terminal", cx))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.dispatch(Command::Settings, window, cx);
+                        this.settings_view.update(cx, |settings, cx| {
+                            settings.select_page(settings::Page::Terminal, window, cx);
+                        });
+                    })),
+            )
             .child(maximize)
             .child(hide);
         let header = frame
