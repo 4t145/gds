@@ -5,6 +5,8 @@
 ## 本地工作区终端
 local-terminal-title = 本地终端
 local-terminal-toggle = 显示／隐藏本地终端
+local-terminal-show = 显示终端
+local-terminal-hide = 收起终端
 local-terminal-no-cwd = 请选择本地工作目录，再新建终端。
 local-terminal-remote = 仅本地 IPC 连接可启动本地终端，不会将 TCP 或远端目录当作本机目录。
 local-terminal-resize = 调整终端面板高度

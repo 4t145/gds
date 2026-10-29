@@ -5,6 +5,8 @@
 ## Local workspace terminals
 local-terminal-title = Local terminal
 local-terminal-toggle = Toggle local terminal
+local-terminal-show = Show terminal
+local-terminal-hide = Hide terminal
 local-terminal-no-cwd = Select a local working directory to create a terminal.
 local-terminal-remote = Local terminals require a local IPC connection. TCP and remote paths are not used locally.
 local-terminal-resize = Resize terminal dock
