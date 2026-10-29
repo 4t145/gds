@@ -3,13 +3,12 @@
 use futures::{FutureExt as _, future::Shared};
 use gds::terminal::{Preferences, Shutdown, Status, Terminal};
 use gpui_kit::{
-    App, AppContext, Context, Entity, FocusHandle, IntoElement, Render, SharedString, Subscription,
-    TestSupportExt, Window,
+    App, AppContext, Context, Entity, FocusHandle, IntoElement, Render, RenderOnce, SharedString,
+    Subscription, TestSupportExt, Window,
     assets::IconName,
-    component::{ActiveTheme, Disableable, Selectable, button::ButtonVariants},
+    component::{ActiveTheme, Selectable},
     div,
     prelude::*,
-    px,
 };
 use std::path::PathBuf;
 
@@ -304,9 +303,14 @@ impl Panel {
             .into()
     }
 
-    fn tab(&self, entry: &Entry, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
-        let id = entry.id;
-        let title = Self::title(entry, cx);
+    pub fn active_hint(&self, cx: &App) -> Option<gds::ui::tooltip::Details> {
+        self.entries
+            .iter()
+            .find(|entry| Some(entry.id) == self.active)
+            .map(|entry| Self::hint(entry, cx))
+    }
+
+    fn hint(entry: &Entry, cx: &App) -> gds::ui::tooltip::Details {
         let cwd = entry.terminal.read(cx).cwd().display().to_string();
         let status = match entry.terminal.read(cx).status(cx) {
             Status::Starting => crate::i18n::tr!("local-terminal-starting").to_owned(),
@@ -319,30 +323,70 @@ impl Panel {
             Status::Failed(error) => error,
         };
         let origin = crate::i18n::tr!("local-terminal-started-in", path = cwd);
-        let hint = format!("{title} · {origin} · {status}");
+        gds::ui::tooltip::Details::new(Self::title(entry, cx))
+            .line(origin)
+            .line(status)
+    }
+
+    fn tab(&self, entry: &Entry, window: &Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        let id = entry.id;
+        let title = Self::title(entry, cx);
+        let hint = Self::hint(entry, cx);
         let selected = self.active == Some(id);
+        let group = SharedString::from(format!("agents-terminal-row-{id}"));
+        let close_label = crate::i18n::tr!("local-terminal-tab-close");
         let close = Button::icon_button(("agents-terminal-close", id))
             .control_icon(IconName::X)
+            .accessibility_label(close_label)
             .selected(selected)
-            .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
+            .when(selected, |button| {
+                button.tooltip_with_shortcut(
+                    close_label,
+                    gds::ui::Shortcut::new(Box::new(CloseTerminal), Some(TABS_CONTEXT)),
+                )
+            })
+            .when(!selected, |button| button.tooltip(close_label))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
                 panel.request_close(id, window, cx);
-            }));
-        gds::ui::NavItem::new(("agents-terminal-tab", id), IconName::Terminal, title)
-            .selected(selected)
-            .tooltip_text(hint)
-            .trailing(vec![close.into_any_element()])
-            .on_click(cx.listener(move |panel, _, window, cx| {
-                panel.active = Some(id);
-                panel.tabs_focus.focus(window, cx);
-                cx.notify();
             }))
+            .into_any_element();
+        let reveal_close = selected
+            && self.tabs_focus.is_focused(window)
+            && gds::ui::HeldModifier::from_modifiers(window.modifiers())
+                == Some(gds::ui::HeldModifier::Ctrl);
+        let close = if reveal_close {
+            close
+        } else {
+            gds::ui::hover_action(group.clone(), div().into_any_element(), Some(close))
+        };
+        div()
+            .id(("agents-terminal-row", id))
+            .test_support()
+            .group(group)
+            .w_full()
+            .tooltip_show_delay(gds::ui::TOOLTIP_DELAY)
+            .hoverable_tooltip(move |window, cx| hint.view(window, cx))
+            .child(
+                gds::ui::NavItem::new(("agents-terminal-tab", id), IconName::Terminal, title)
+                    .selected(selected)
+                    .tooltip_enabled(false)
+                    .trailing(vec![close])
+                    .on_click(cx.listener(move |panel, _, window, cx| {
+                        panel.active = Some(id);
+                        panel.tabs_focus.focus(window, cx);
+                        cx.notify();
+                    })),
+            )
             .into_any_element()
     }
 
-    /// The workspace sidebar provides management; the dock only renders the PTY.
+    /// Navigation is rendered with the window's current modifier and focus scope.
     pub fn render_tabs(&self, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
+        Tabs(cx.entity()).into_any_element()
+    }
+
+    fn tabs(&self, window: &Window, cx: &mut Context<Self>) -> gpui_kit::AnyElement {
         div()
             .id("agents-terminal-tabs")
             .test_support()
@@ -354,30 +398,40 @@ impl Panel {
             .flex_col()
             .gap_1()
             .text_color(gds::theme::Colors::current(cx).sidebar_foreground)
-            .bg(gds::theme::sidebar_background(cx))
+            .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             .on_action(cx.listener(Self::new_terminal))
             .on_action(cx.listener(Self::close_terminal))
             .on_action(cx.listener(Self::next_terminal))
             .on_action(cx.listener(Self::previous_terminal))
             .on_action(cx.listener(Self::focus_terminal))
-            .children(self.entries.iter().map(|entry| self.tab(entry, cx)))
+            .children(self.entries.iter().map(|entry| self.tab(entry, window, cx)))
             .child(
-                Button::new("agents-terminal-new")
-                    .ghost()
-                    .h(px(gds::ui::ICON_BUTTON_SIZE))
-                    .w_full()
-                    .label(crate::i18n::tr!("local-terminal-new"))
-                    .control_icon(IconName::Plus)
-                    .disabled(self.cwd.is_none() || self.closing)
-                    .tooltip_with_shortcut(
-                        crate::i18n::tr!("local-terminal-new"),
-                        gds::ui::Shortcut::new(Box::new(NewTerminal), Some(TABS_CONTEXT)),
-                    )
-                    .on_click(cx.listener(|panel, _, window, cx| {
+                gds::ui::NavItem::new(
+                    "agents-terminal-new",
+                    IconName::Plus,
+                    crate::i18n::tr!("local-terminal-new"),
+                )
+                .disabled(self.cwd.is_none() || self.closing)
+                .shortcut(gds::ui::Shortcut::new(
+                    Box::new(NewTerminal),
+                    Some(TABS_CONTEXT),
+                ))
+                .on_click(
+                    cx.listener(|panel, _, window, cx| {
                         panel.new_terminal(&NewTerminal, window, cx)
-                    })),
+                    }),
+                ),
             )
             .into_any_element()
+    }
+}
+
+#[derive(IntoElement)]
+struct Tabs(Entity<Panel>);
+
+impl RenderOnce for Tabs {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.0.update(cx, |panel, cx| panel.tabs(window, cx))
     }
 }
 

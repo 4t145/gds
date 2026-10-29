@@ -81,6 +81,55 @@ pub fn view_with_id(
     )
 }
 
+/// A title followed by independently wrapped metadata, bounded to the window.
+#[derive(Clone)]
+pub struct Details {
+    title: SharedString,
+    lines: Vec<SharedString>,
+}
+
+impl Details {
+    pub fn new(title: impl Into<SharedString>) -> Self {
+        Self {
+            title: title.into(),
+            lines: Vec::new(),
+        }
+    }
+
+    pub fn line(mut self, text: impl Into<SharedString>) -> Self {
+        self.lines.push(text.into());
+        self
+    }
+
+    pub fn view(&self, window: &mut Window, cx: &mut App) -> AnyView {
+        let label = std::iter::once(self.title.as_ref())
+            .chain(self.lines.iter().map(AsRef::as_ref))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let title = wrap_tokens(&self.title);
+        let lines: Vec<_> = self.lines.iter().map(|line| wrap_tokens(line)).collect();
+        element(
+            "details-tooltip-content",
+            label,
+            move |_, cx| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(title.clone()))
+                    .children(lines.iter().map(|line| {
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(line.clone())
+                    }))
+                    .into_any_element()
+            },
+            window,
+            cx,
+        )
+    }
+}
+
 /// Attach a custom hint whose rows are built whenever the tooltip is shown.
 pub fn element(
     id: &'static str,

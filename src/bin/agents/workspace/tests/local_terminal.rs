@@ -446,3 +446,90 @@ async fn close_without_confirmation_reaps_hidden_starting_terminal(cx: &mut Test
         );
     });
 }
+
+#[cfg(unix)]
+#[gpui_kit::test]
+async fn sidebar_terminal_close_follows_hover_and_keyboard_target(cx: &mut TestAppContext) {
+    use gpui_kit::{InputEvent as _, Modifiers, ModifiersChangedEvent};
+
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("sidebar terminal directory");
+    let fixture = fixture(cx);
+    let panel = cx
+        .update_window(fixture.window.into(), |_, window, cx| {
+            fixture.view.update(cx, |view, cx| {
+                view.backend.server =
+                    bas::service::Target::Unix("/tmp/terminal-test.sock".into()).into();
+                view.navigation.directories = vec![directory.path().to_path_buf()];
+                view.navigation.selected_directory = Some(directory.path().to_path_buf());
+                view.terminals.visible = true;
+                view.sync_terminal_panel(window, cx);
+                let panel = view.terminal_panel().expect("sidebar terminal panel");
+                panel.update(cx, |panel, cx| {
+                    panel.set_preferences(
+                        gds::terminal::Preferences {
+                            shell: Some(directory.path().join("missing-test-shell")),
+                            ..Default::default()
+                        },
+                        cx,
+                    );
+                    panel.open(directory.path().to_path_buf(), window, cx);
+                    panel.open(directory.path().to_path_buf(), window, cx);
+                });
+                panel
+            })
+        })
+        .expect("two sidebar terminals");
+    let (first, second) = cx.update(|cx| {
+        let choices = panel.read(cx).choices(cx);
+        (choices[0].0, choices[1].0)
+    });
+    cx.update_window(fixture.window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.hover("sidebar-header", cx);
+        assert!(!window.find(("agents-terminal-close", first)).visible());
+        assert!(!window.find(("agents-terminal-close", second)).visible());
+        window.hover(("agents-terminal-tab", first), cx);
+        assert!(window.find(("agents-terminal-close", first)).visible());
+        window.click(("agents-terminal-close", first), cx);
+        assert_eq!(panel.read(cx).choices(cx).len(), 1);
+        assert_eq!(
+            panel.read(cx).active_id(),
+            Some(second),
+            "closing an inactive row never selects its retired instance"
+        );
+        window.click(("agents-terminal-tab", second), cx);
+        window.hover("sidebar-header", cx);
+        window.dispatch_event(
+            ModifiersChangedEvent {
+                modifiers: Modifiers::control(),
+                capslock: window.capslock(),
+            }
+            .to_platform_input(),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.find(("agents-terminal-close", second)).visible());
+        window.dispatch_event(
+            ModifiersChangedEvent {
+                modifiers: Modifiers::default(),
+                capslock: window.capslock(),
+            }
+            .to_platform_input(),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(!window.find(("agents-terminal-close", second)).visible());
+        window.press("ctrl-w", cx);
+        assert!(panel.read(cx).choices(cx).is_empty());
+    })
+    .expect("sidebar close interaction");
+    let shutdowns = cx.update(|cx| {
+        fixture
+            .view
+            .update(cx, |view, cx| view.shutdown_terminals(cx))
+    });
+    for shutdown in shutdowns {
+        shutdown.await;
+    }
+}
