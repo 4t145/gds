@@ -374,13 +374,16 @@ impl Workspace {
             .as_ref()
             .map(|panel| panel.read(cx).active_title(cx))
             .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into());
-        let title_hint = active_title.clone();
+        let title_hint = panel
+            .as_ref()
+            .and_then(|panel| panel.read(cx).active_hint(cx))
+            .unwrap_or_else(|| gds::ui::tooltip::Details::new(active_title.clone()));
         let controls = div()
             .flex()
             .items_center()
             .min_w_0()
             .px(px(gds::ui::TERMINAL_CONTENT_INSET))
-            .py_1()
+            .h(px(gds::ui::TERMINAL_HEADER_HEIGHT))
             .gap_1()
             .child(
                 div()
@@ -389,9 +392,7 @@ impl Workspace {
                     .min_w_0()
                     .truncate()
                     .text_size(gds::ui::SMALL)
-                    .hoverable_tooltip(move |window, cx| {
-                        gds::ui::tooltip::view(title_hint.clone(), window, cx)
-                    })
+                    .hoverable_tooltip(move |window, cx| title_hint.view(window, cx))
                     .child(active_title),
             )
             .children(picker)

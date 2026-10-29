@@ -38,7 +38,7 @@ pub use shortcut::{
 pub use crate::design::{
     COLLAPSED_SIDEBAR_WIDTH, FOOTER_HEIGHT, ICON_BUTTON_SIZE, SIDEBAR_ICON_SIZE,
     SIDEBAR_ITEM_HEIGHT, SIDEBAR_PADDING, SIDEBAR_SECTION_PADDING, SIDEBAR_WIDTH,
-    TERMINAL_CONTENT_INSET, TOOLBAR_HEIGHT,
+    TERMINAL_CONTENT_INSET, TERMINAL_HEADER_HEIGHT, TOOLBAR_HEIGHT,
 };
 pub const SMALL: Rems = Rems(crate::design::UI_TEXT_SCALE);
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(400);
@@ -149,6 +149,12 @@ impl IconButton {
         if active {
             self.button = self.button.primary();
         }
+        self
+    }
+
+    /// Persistent on/off state uses shared selection and accessibility semantics.
+    pub fn toggled(mut self, toggled: bool) -> Self {
+        self.button = self.button.selected(toggled).toggled(toggled);
         self
     }
 

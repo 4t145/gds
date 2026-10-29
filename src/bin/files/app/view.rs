@@ -845,7 +845,15 @@ impl Browser {
         }
         let terminal = self
             .command_button("terminal", IconName::Terminal, Command::Terminal, cx)
-            .active(self.terminal_visible())
+            .label(i18n::text(
+                if self.terminal_visible() {
+                    "files-terminal-hide"
+                } else {
+                    "files-terminal-show"
+                },
+                cx,
+            ))
+            .toggled(self.terminal_visible())
             .disabled(self.active().is_none());
         el! { .div { flex; items_center; flex_shrink_0 } [terminal] }.into_any_element()
     }
