@@ -333,26 +333,26 @@ impl Panel {
         let title = Self::title(entry, cx);
         let hint = Self::hint(entry, cx);
         let selected = self.active == Some(id);
+        let shortcut_target = selected && self.tabs_focus.is_focused(window);
         let group = SharedString::from(format!("agents-terminal-row-{id}"));
         let close_label = crate::i18n::tr!("local-terminal-tab-close");
         let close = Button::icon_button(("agents-terminal-close", id))
             .control_icon(IconName::X)
             .accessibility_label(close_label)
             .selected(selected)
-            .when(selected, |button| {
+            .when(shortcut_target, |button| {
                 button.tooltip_with_shortcut(
                     close_label,
                     gds::ui::Shortcut::new(Box::new(CloseTerminal), Some(TABS_CONTEXT)),
                 )
             })
-            .when(!selected, |button| button.tooltip(close_label))
+            .when(!shortcut_target, |button| button.tooltip(close_label))
             .on_click(cx.listener(move |panel, _, window, cx| {
                 cx.stop_propagation();
                 panel.request_close(id, window, cx);
             }))
             .into_any_element();
-        let reveal_close = selected
-            && self.tabs_focus.is_focused(window)
+        let reveal_close = shortcut_target
             && gds::ui::HeldModifier::from_modifiers(window.modifiers())
                 == Some(gds::ui::HeldModifier::Ctrl);
         let close = if reveal_close {

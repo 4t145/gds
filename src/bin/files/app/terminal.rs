@@ -295,7 +295,10 @@ impl Browser {
                 this.child(ui::sidebar_section_title(title, cx).px(px(ui::SIDEBAR_SECTION_PADDING)))
             });
         let active_title = panel.read(cx).active_title(cx);
-        let title_hint = ui::tooltip::Details::new(active_title.clone());
+        let title_hint = panel
+            .read(cx)
+            .active_hint(cx)
+            .unwrap_or_else(|| ui::tooltip::Details::new(active_title.clone()));
         let controls = div()
             .flex()
             .items_center()
