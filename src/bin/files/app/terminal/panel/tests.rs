@@ -8,7 +8,7 @@ async fn revealing_an_empty_local_panel_starts_once_and_focuses_it(cx: &mut Test
     let directory = tempfile::tempdir().expect("terminal test directory");
     cx.update(|cx| {
         gpui_kit::init(cx);
-        gds::i18n::install(gds::i18n::Language::English, cx).expect("terminal translations");
+        crate::i18n::install(gds::i18n::Language::English, cx).expect("terminal translations");
     });
     let panel = cx.update(|cx| cx.new(Panel::new));
     let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
@@ -104,7 +104,7 @@ async fn close_starting_terminal_skips_dialog_and_preserves_shutdown_barrier(
     let directory = tempfile::tempdir().expect("terminal directory");
     cx.update(|cx| {
         gpui_kit::init(cx);
-        gds::i18n::install(gds::i18n::Language::English, cx).expect("test messages");
+        crate::i18n::install(gds::i18n::Language::English, cx).expect("test messages");
     });
     let mut panel = None;
     let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
@@ -224,5 +224,65 @@ async fn folder_switch_targets_only_selected_instance_and_never_creates_one(
             panel.shutdown(cx)
         })
     });
+    shutdown.await;
+}
+
+#[gpui_kit::test]
+async fn row_close_is_hover_only_and_targets_its_own_terminal(cx: &mut TestAppContext) {
+    use gpui_kit::{InputEvent as _, Modifiers, ModifiersChangedEvent, test::TestWindowExt};
+
+    cx.executor().allow_parking();
+    let directory = tempfile::tempdir().expect("terminal row directory");
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::i18n::install(gds::i18n::Language::English, cx).expect("terminal row translations");
+        crate::actions::register(cx);
+    });
+    let panel = cx.update(|cx| cx.new(Panel::new));
+    let window = cx.open_window(size(px(900.), px(500.)), |window, cx| {
+        Root::new(panel.clone(), window, cx)
+    });
+    let shutdown = cx
+        .update_window(window.into(), |_, window, cx| {
+            let (first, second) = panel.update(cx, |panel, cx| {
+                panel.preferences.shell = Some(directory.path().join("missing-test-shell"));
+                panel.set_cwd(Some(directory.path().to_path_buf()), cx);
+                panel.open(directory.path().to_path_buf(), window, cx);
+                panel.open(directory.path().to_path_buf(), window, cx);
+                (panel.entries[0].id, panel.entries[1].id)
+            });
+            window.render_frame(cx);
+            window.hover("files-terminal-new", cx);
+            assert!(!window.find(("files-terminal-close", first)).visible());
+            assert!(!window.find(("files-terminal-close", second)).visible());
+            window.hover(("files-terminal-tab", first), cx);
+            assert!(window.find(("files-terminal-close", first)).visible());
+            window.click(("files-terminal-close", first), cx);
+            assert_eq!(panel.read(cx).active, Some(second));
+            assert!(panel.read(cx).entries[0].closing);
+            window.click(("files-terminal-tab", second), cx);
+            window.hover("files-terminal-new", cx);
+            window.dispatch_event(
+                ModifiersChangedEvent {
+                    modifiers: Modifiers::control(),
+                    capslock: window.capslock(),
+                }
+                .to_platform_input(),
+                cx,
+            );
+            window.render_frame(cx);
+            assert!(window.find(("files-terminal-close", second)).visible());
+            panel.update(cx, |panel, cx| {
+                panel.focus(window, cx);
+                cx.notify();
+            });
+            window.render_frame(cx);
+            assert!(
+                !window.find(("files-terminal-close", second)).visible(),
+                "PTY focus must not advertise the navigation Ctrl+W target"
+            );
+            panel.update(cx, |panel, cx| panel.shutdown(cx))
+        })
+        .expect("terminal row close targeting");
     shutdown.await;
 }

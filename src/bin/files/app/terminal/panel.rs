@@ -10,7 +10,7 @@ use gds::{
 };
 use gpui_kit::{
     assets::IconName,
-    component::{Disableable, Selectable, WindowExt, button::ButtonVariants},
+    component::{Disableable, Selectable, WindowExt},
     prelude::*,
     *,
 };
@@ -140,6 +140,33 @@ impl Panel {
                     .unwrap_or_else(|| terminal.cwd().display().to_string())
                     .into()
             })
+    }
+
+    fn hint(entry: &Entry, cx: &App) -> ui::tooltip::Details {
+        let terminal = entry.terminal.read(cx);
+        let mut args = fluent_bundle::FluentArgs::new();
+        args.set("path", terminal.cwd().display().to_string());
+        let origin = i18n::format("files-terminal-started-in", Some(&args), cx);
+        let status = match terminal.status(cx) {
+            terminal::Status::Starting => i18n::text("gds-terminal-starting", cx),
+            terminal::Status::Running => i18n::text("gds-terminal-running", cx),
+            terminal::Status::Stopping => i18n::text("gds-terminal-stopping", cx),
+            terminal::Status::Closed => i18n::text("gds-terminal-exited", cx),
+            terminal::Status::Exited { code, signal } => {
+                let mut args = fluent_bundle::FluentArgs::new();
+                args.set("code", i64::from(code));
+                args.set("signal", signal.unwrap_or_else(|| "—".into()));
+                i18n::format("gds-terminal-exit-status", Some(&args), cx)
+            }
+            terminal::Status::Failed(error) => error.into(),
+        };
+        ui::tooltip::Details::new(Self::title(entry, cx))
+            .line(origin)
+            .line(status)
+    }
+
+    pub fn active_hint(&self, cx: &App) -> Option<ui::tooltip::Details> {
+        self.selected().map(|entry| Self::hint(entry, cx))
     }
 
     pub fn can_change_directory(&self, cx: &App) -> bool {
@@ -315,6 +342,65 @@ impl Panel {
         cx.notify();
     }
 
+    fn tab(
+        &self,
+        entry: &Entry,
+        collapsed: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let id = entry.id;
+        let selected = self.active == Some(id);
+        let shortcut_target = selected && self.tabs_focus.is_focused(window);
+        let group = SharedString::from(format!("files-terminal-row-{id}"));
+        let hint = Self::hint(entry, cx);
+        let close_label = i18n::text("files-terminal-end", cx);
+        let close = ui::button::Button::icon_button(("files-terminal-close", id))
+            .control_icon(IconName::X)
+            .accessibility_label(close_label.clone())
+            .selected(selected)
+            .when(shortcut_target, |button| {
+                button.tooltip_with_shortcut(
+                    close_label.clone(),
+                    ui::Shortcut::new(Box::new(CloseTerminal), Some(TERMINAL_TABS_CONTEXT)),
+                )
+            })
+            .when(!shortcut_target, |button| button.tooltip(close_label))
+            .disabled(self.sealed || entry.closing)
+            .on_click(cx.listener(move |panel, _, window, cx| {
+                cx.stop_propagation();
+                panel.request_close(id, window, cx);
+            }))
+            .into_any_element();
+        let reveal_close = shortcut_target
+            && ui::HeldModifier::from_modifiers(window.modifiers()) == Some(ui::HeldModifier::Ctrl);
+        let close = if reveal_close {
+            close
+        } else {
+            ui::hover_action(group.clone(), div().into_any_element(), Some(close))
+        };
+        div()
+            .id(("files-terminal-row", id))
+            .test_support()
+            .group(group)
+            .w_full()
+            .tooltip_show_delay(ui::TOOLTIP_DELAY)
+            .hoverable_tooltip(move |window, cx| hint.view(window, cx))
+            .child(
+                ui::NavItem::new(
+                    ("files-terminal-tab", id),
+                    IconName::Terminal,
+                    Self::title(entry, cx),
+                )
+                .compact(collapsed)
+                .selected(selected)
+                .tooltip_enabled(false)
+                .trailing(if collapsed { Vec::new() } else { vec![close] })
+                .on_click(cx.listener(move |panel, _, window, cx| panel.select(id, window, cx))),
+            )
+            .into_any_element()
+    }
+
     fn remove_stopped(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.sealed {
             return;
@@ -339,10 +425,10 @@ impl Panel {
 }
 
 impl Render for Panel {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = gds::theme::Colors::current(cx);
         let collapsed = self.sidebar_width <= ui::COLLAPSED_SIDEBAR_WIDTH + 1.;
-        let mut tabs = div()
+        let tabs = div()
             .id("files-terminal-tabs")
             .w(px(self.sidebar_width))
             .h_full()
@@ -360,54 +446,21 @@ impl Render for Panel {
             .on_action(cx.listener(Self::on_close))
             .on_action(cx.listener(Self::on_next))
             .on_action(cx.listener(Self::on_previous))
-            .on_action(cx.listener(Self::on_focus));
-        for entry in &self.entries {
-            let id = entry.id;
-            let terminal = entry.terminal.read(cx);
-            let title = Self::title(entry, cx);
-            let mut args = fluent_bundle::FluentArgs::new();
-            args.set("path", terminal.cwd().display().to_string());
-            let tooltip: SharedString = format!(
-                "{}\n{}",
-                title,
-                i18n::format("files-terminal-started-in", Some(&args), cx)
+            .on_action(cx.listener(Self::on_focus))
+            .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
+            .children(
+                self.entries
+                    .iter()
+                    .map(|entry| self.tab(entry, collapsed, window, cx)),
             )
-            .into();
-            let select =
-                cx.listener(move |panel, _: &ClickEvent, window, cx| panel.select(id, window, cx));
-            let close = cx.listener(move |panel, _: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                panel.request_close(id, window, cx);
-            });
-            let close_button = ui::button::Button::icon_button(("files-terminal-close", id))
-                .control_icon(IconName::X)
-                .tooltip(i18n::text("files-terminal-end", cx))
-                .when(self.active == Some(id), |button| button.selected(true))
-                .disabled(self.sealed || entry.closing)
-                .on_click(close);
-            tabs = tabs.child(
-                ui::NavItem::new(("files-terminal-tab", id), IconName::Terminal, title)
-                    .compact(collapsed)
-                    .selected(self.active == Some(id))
-                    .tooltip_text(tooltip)
-                    .trailing(if collapsed {
-                        Vec::new()
-                    } else {
-                        vec![close_button.into_any_element()]
-                    })
-                    .on_click(select),
-            );
-        }
-        tabs = tabs.child(
-            ui::button::Button::new("files-terminal-new")
-                .ghost()
-                .h(px(ui::ICON_BUTTON_SIZE))
-                .w_full()
-                .control_icon(IconName::Plus)
-                .when(!collapsed, |button| {
-                    button.label(i18n::text("files-terminal-new", cx))
-                })
-                .tooltip(i18n::text(
+            .child(
+                ui::NavItem::new(
+                    "files-terminal-new",
+                    IconName::Plus,
+                    i18n::text("files-terminal-new", cx),
+                )
+                .compact(collapsed)
+                .tooltip_text(i18n::text(
                     if self.cwd.is_some() {
                         "files-terminal-new"
                     } else {
@@ -423,7 +476,7 @@ impl Render for Panel {
                 .on_click(
                     cx.listener(|panel, _, window, cx| panel.on_new(&NewTerminal, window, cx)),
                 ),
-        );
+            );
         let body = match self.selected() {
             Some(entry) => entry.terminal.clone().into_any_element(),
             None => div()
