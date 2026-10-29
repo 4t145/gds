@@ -246,9 +246,18 @@ impl Workspace {
     }
 
     pub(super) fn terminal_toggle_button(&self, cx: &mut Context<Self>) -> Button {
+        let visible = self.terminals.visible && !self.window.compact;
+        let label = if visible {
+            crate::i18n::tr!("local-terminal-hide")
+        } else {
+            crate::i18n::tr!("local-terminal-show")
+        };
         layout::icon_button("toggle-local-terminal", IconName::Terminal)
+            .selected(visible)
+            .toggled(visible)
+            .accessibility_label(label)
             .tooltip_with_shortcut(
-                crate::i18n::tr!("local-terminal-toggle"),
+                label,
                 gds::ui::Shortcut::new(Box::new(ToggleTerminal), Some("AgentsHost")),
             )
             .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx)))
@@ -277,6 +286,7 @@ impl Workspace {
                 .flex_col()
                 .w_full()
                 .min_w_0()
+                .pl_2()
                 .child(
                     gds::ui::sidebar_section_title(crate::i18n::tr!("local-terminal-title"), cx)
                         .id("agents-terminal-heading")
@@ -289,48 +299,55 @@ impl Workspace {
         )
     }
 
-    fn terminal_picker(&self, panel: Option<&Entity<Panel>>, cx: &mut Context<Self>) -> AnyElement {
+    fn terminal_picker(
+        &self,
+        panel: Option<&Entity<Panel>>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let choices = panel
             .map(|panel| panel.read(cx).choices(cx))
             .unwrap_or_default();
-        let disabled = choices.is_empty();
+        if choices.len() < 2 {
+            return None;
+        }
         let owner = cx.entity().downgrade();
         let panel = panel.cloned();
         let parent = self.window.handle;
-        self.menu_button(
-            layout::icon_button("choose-local-terminal", IconName::List)
-                .disabled(disabled)
-                .accessibility_label(crate::i18n::tr!("local-terminal-select"))
-                .tooltip(crate::i18n::tr!("local-terminal-select")),
-            choices.len(),
-            disabled,
-            move |mut menu, _, _| {
-                for (id, title, selected) in &choices {
-                    let id = *id;
-                    let owner = owner.clone();
-                    let panel = panel.clone();
-                    menu = menu.item(
-                        PopupMenuItem::new(title.clone())
-                            .icon(IconName::Terminal)
-                            .checked(*selected)
-                            .on_click(move |_, window, cx| {
-                                menus::in_parent(parent, window, cx, |window, cx| {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        if let Some(panel) = &panel
-                                            && this.terminal_panel().as_ref() == Some(panel)
-                                        {
-                                            panel.update(cx, |panel, cx| {
-                                                panel.select(id, window, cx)
-                                            });
-                                        }
+        Some(
+            self.menu_button(
+                layout::icon_button("choose-local-terminal", IconName::List)
+                    .accessibility_label(crate::i18n::tr!("local-terminal-select"))
+                    .tooltip(crate::i18n::tr!("local-terminal-select")),
+                choices.len(),
+                false,
+                move |mut menu, _, _| {
+                    for (id, title, selected) in &choices {
+                        let id = *id;
+                        let owner = owner.clone();
+                        let panel = panel.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new(title.clone())
+                                .icon(IconName::Terminal)
+                                .checked(*selected)
+                                .on_click(move |_, window, cx| {
+                                    menus::in_parent(parent, window, cx, |window, cx| {
+                                        let _ = owner.update(cx, |this, cx| {
+                                            if let Some(panel) = &panel
+                                                && this.terminal_panel().as_ref() == Some(panel)
+                                            {
+                                                panel.update(cx, |panel, cx| {
+                                                    panel.select(id, window, cx)
+                                                });
+                                            }
+                                        });
                                     });
-                                });
-                            }),
-                    );
-                }
-                menu
-            },
-            cx,
+                                }),
+                        );
+                    }
+                    menu
+                },
+                cx,
+            ),
         )
     }
 
@@ -357,24 +374,30 @@ impl Workspace {
             .as_ref()
             .map(|panel| panel.read(cx).active_title(cx))
             .unwrap_or_else(|| crate::i18n::tr!("local-terminal-title").into());
+        let title_hint = active_title.clone();
         let controls = div()
             .flex()
             .items_center()
-            .h_full()
             .min_w_0()
             .px(px(gds::ui::TERMINAL_CONTENT_INSET))
-            .gap_2()
+            .py_1()
+            .gap_1()
             .child(
                 div()
+                    .id("active-local-terminal-title")
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_sm()
+                    .text_size(gds::ui::SMALL)
+                    .hoverable_tooltip(move |window, cx| {
+                        gds::ui::tooltip::view(title_hint.clone(), window, cx)
+                    })
                     .child(active_title),
             )
-            .child(picker)
+            .children(picker)
             .child(
                 layout::icon_button("close-local-terminal", IconName::X)
+                    .accessibility_label(crate::i18n::tr!("local-terminal-tab-close"))
                     .disabled(close_target.is_none())
                     .tooltip(crate::i18n::tr!("local-terminal-tab-close"))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -387,6 +410,7 @@ impl Workspace {
             )
             .child(
                 layout::icon_button("new-local-terminal", IconName::Plus)
+                    .accessibility_label(crate::i18n::tr!("local-terminal-new"))
                     .disabled(workspace.is_none())
                     .tooltip(crate::i18n::tr!("local-terminal-new"))
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -396,13 +420,8 @@ impl Workspace {
                             });
                         }
                     })),
-            )
-            .child(
-                layout::icon_button("hide-local-terminal", IconName::Terminal)
-                    .tooltip(crate::i18n::tr!("local-terminal-toggle"))
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_terminal(window, cx))),
             );
-        let header = controls.flex_none().h(px(crate::ui::CONTROL));
+        let header = controls.flex_none();
         let body = workspace
             .map(|workspace| workspace.panel.clone().into_any_element())
             .unwrap_or_else(|| {

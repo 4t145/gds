@@ -278,11 +278,13 @@ async fn dock_switch_and_close_work_without_sidebar_terminal_controls(cx: &mut T
             });
             window.render_frame(cx);
             assert!(window.try_find("agents-terminal-tabs").is_none());
-            assert!(window.find("choose-local-terminal").visible());
+            assert!(window.try_find("choose-local-terminal").is_none());
             assert!(window.find("close-local-terminal").visible());
             window.click("new-local-terminal", cx);
             assert_eq!(panel.read(cx).choices(cx).len(), 2);
             assert_ne!(panel.read(cx).active_id(), Some(first_id));
+            window.render_frame(cx);
+            assert!(window.find("choose-local-terminal").visible());
             window.click("choose-local-terminal", cx);
             window.press("down", cx);
             window.press("enter", cx);

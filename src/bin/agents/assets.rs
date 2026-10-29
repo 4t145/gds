@@ -2,6 +2,9 @@ use std::borrow::Cow;
 
 use gpui_kit::{AssetSource, SharedString};
 
+#[cfg(test)]
+mod tests;
+
 pub(super) const OUTLINE: &str = "branding/ferris-outline.svg";
 pub(super) const OUTLINE_LIGHT: &str = "branding/ferris-outline-light.svg";
 pub(super) const DIMENSIONAL: &str = "branding/ferris-dimensional.svg";
@@ -87,6 +90,7 @@ gpui_kit::assets::icon_assets!(
         FileText,
         FilePen,
         Globe,
+        List,
         ListFilter,
         ListTodo,
         ListClock,
