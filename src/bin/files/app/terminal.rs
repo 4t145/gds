@@ -20,7 +20,6 @@ pub(super) const MIN_CONTENT_HEIGHT: f32 = sidebar::MIN_TABS_HEIGHT
     + ui::SIDEBAR_ITEM_HEIGHT * 2.;
 pub(super) const MIN_DOCK_HEIGHT: f32 = 160.;
 pub(super) const DEFAULT_DOCK_HEIGHT: f32 = 280.;
-const HEADER_HEIGHT: f32 = 36.;
 
 pub(super) struct Dock {
     pub panel: Entity<Panel>,
@@ -274,11 +273,6 @@ impl Browser {
                 cx,
             ))
             .on_click(cx.listener(Self::maximize_terminal));
-        let hide = ui::IconButton::new("files-terminal-hide")
-            .icon(IconName::Terminal)
-            .label(i18n::text("files-terminal-hide", cx))
-            .command(Command::Terminal)
-            .on_click(cx.listener(Self::click_command(Command::Terminal)));
         let width = self.width();
         panel.update(cx, |panel, cx| panel.set_sidebar_width(width, cx));
         let frame = ui::Frame::new(width);
@@ -301,19 +295,22 @@ impl Browser {
                 this.child(ui::sidebar_section_title(title, cx).px(px(ui::SIDEBAR_SECTION_PADDING)))
             });
         let active_title = panel.read(cx).active_title(cx);
+        let title_hint = ui::tooltip::Details::new(active_title.clone());
         let controls = div()
             .flex()
             .items_center()
             .h_full()
             .min_w_0()
             .px(px(ui::TERMINAL_CONTENT_INSET))
-            .gap_2()
+            .gap_1()
             .child(
                 div()
+                    .id("files-active-terminal-title")
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_sm()
+                    .text_size(ui::SMALL)
+                    .hoverable_tooltip(move |window, cx| title_hint.view(window, cx))
                     .child(active_title),
             )
             .child(
@@ -327,12 +324,11 @@ impl Browser {
                     )
                     .on_click(cx.listener(Self::switch_terminal_directory)),
             )
-            .child(maximize)
-            .child(hide);
+            .child(maximize);
         let header = frame
             .workspace(heading.into_any_element(), controls.into_any_element(), cx)
             .flex_none()
-            .h(px(HEADER_HEIGHT));
+            .h(px(ui::TERMINAL_HEADER_HEIGHT));
         let dock = div()
             .id("files-terminal-dock")
             .test_support()
