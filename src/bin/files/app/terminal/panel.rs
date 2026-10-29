@@ -384,6 +384,7 @@ impl Panel {
             .test_support()
             .group(group)
             .w_full()
+            .flex_shrink_0()
             .tooltip_show_delay(ui::TOOLTIP_DELAY)
             .hoverable_tooltip(move |window, cx| hint.view(window, cx))
             .child(
