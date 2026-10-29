@@ -19,6 +19,8 @@ pub const CONTENT_PADDING: f32 = 12.0;
 pub const TERMINAL_CONTENT_INSET: f32 = CONTENT_PADDING;
 pub const SIDEBAR_ITEM_HEIGHT: f32 = 38.0;
 pub const ICON_BUTTON_SIZE: f32 = 32.0;
+/// Dock actions retain a 4px breathing space above and below the standard target.
+pub const TERMINAL_HEADER_HEIGHT: f32 = ICON_BUTTON_SIZE + 8.0;
 
 pub const ICON_SIZE: f32 = 16.0;
 pub const SIDEBAR_ICON_SIZE: f32 = 18.0;
