@@ -44,12 +44,11 @@ impl Sources {
             .collect();
         let directories: BTreeSet<_> = targets
             .iter()
-            .filter_map(|path| {
-                path.parent()?
-                    .ancestors()
-                    .find(|parent| parent.is_dir())
-                    .map(ToOwned::to_owned)
-            })
+            // A watch on a symlinked directory follows its current inode. Also
+            // watch the ancestors so replacing any path component wakes refresh.
+            .flat_map(|path| path.ancestors().skip(1))
+            .filter(|parent| parent.is_dir())
+            .map(ToOwned::to_owned)
             .collect();
         let targets: Vec<_> = targets.into_iter().collect();
         if targets == self.targets && directories == self.directories {
