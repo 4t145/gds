@@ -1,0 +1,5 @@
+Scan: 4 mutation sites in src/terminal/directory.rs
+  src/terminal/directory.rs:12 delete !  [defn-/command]
+  src/terminal/directory.rs:12 || -> &&  [defn-/command]
+  src/terminal/directory.rs:12 || -> &&  [defn-/command]
+  src/terminal/directory.rs:12 delete !  [defn-/command]
