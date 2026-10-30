@@ -23,4 +23,12 @@
 
 w6 复核指出：叶文件在新旧目标都不存在时，单纯 canonicalize(file) 失败，缓存只含相同词法路径，refresh 会提前返回而仍观察旧 inode。新增缺失文件回归先失败（Nix 退出101，job `bash-ae503945854344fe`）；独立实验也失败。补充 `resolved_target` 将最近可 canonicalize 的祖先加上剩余路径，即使叶文件不存在也能检测目标切换、过滤新目标事件。新旧全部3项测试通过（job `bash-65be5361b8d546d6`）。按复核建议，后续写入前增加150ms静默事件排空，避免迟到的链接通知造成假阳性。
 
-独立复核、全仓测试与 GUI/portal gate 由协作记录及综合修复报告汇总。
+w6 已独立复跑缺失文件实验及真实库3项测试，均退出0；Finding `f34ad559-5e6a-4bae-ac29-2db87789609c` 取代此前失败记录。
+
+## 变异驱动的测试补强（不修改生产代码）
+
+真实 `mutator --no-coverage --lines 80 --mutate-all --max-workers 1 --timeout-factor 1000 --test-command "nix develop --impure --expr 'import ./shell.nix' --command cargo test --locked --lib desktop::watch::tests" --verbose src/desktop/watch.rs` 首次执行退出3：`||→&&` 被杀，`==→!=` 存活，后者放宽为接收无关路径，暴露缺少负向断言。见[首次结果](<f04-evidence/mutation-initial.log>)。此前一次运行因静默排空改进被主动终止，不计作结果。
+
+新增真实无关文件写入测试：先证明目标通知有效，静默排空，再写同目录其它文件并断言150ms不收到更新。原实现四项全通过、变异实现失败；重跑相同变异命令退出0，**所选2个变异全部杀死**，不是全文件7 sites均执行，也不是覆盖率100%。见[变异结果](<f04-evidence/mutation-final.log>)与[四项测试](<f04-evidence/final-tests.log>)。最终 fmt-check 退出0。最终 refresh CC11、resolved_target CC3，Cov/CRAP仍N/A；dryer无重复候选，不为指标拆散局部清晰逻辑。[复杂度](<f04-evidence/crap-final.edn>)、[重复诊断](<f04-evidence/dry-final.edn>)。
+
+全仓测试与 GUI/portal gate 由协作记录及综合修复报告汇总。
