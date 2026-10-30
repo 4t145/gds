@@ -10,6 +10,16 @@
 - 取舍：目标已提交而源发生变化时保留剩余源并报告不完整移动；更早已清理的已复制条目不会回滚。硬链接别名可能因首个 unlink 改变 ctime 而保守留下。metadata→unlinkat 最后窗口仍有 TOCTOU，不承诺任意恶意同UID写入、粗粒度时间戳/特殊FS下的原子跨设备移动；严格保证需要停止写者或文件系统快照/隔离。
 - 工具实际结果：新 check CC7、remove_at CC12，Cov/CRAP N/A；dryer 阈值0.8无候选；3项新检查有界实际变异全部 killed、退出0，非全48位点或行覆盖率成绩。
 
+## F-02：会话图片不等于本地读取授权
+
+- 集成：`344f7193de16adb37fa91104ab17ea6e6ccc458d`；[完整设计、回归和工具记录](<f02-image-fix.md>)。
+- 所有会话（含本地 agent）中的路径/file URL/Resource::Path/Embedded 均拒绝，只允许 HTTP(S)/data；TextView image_source override 将 Markdown/HTML/data 均导入统一有界缓存，关闭原 data 解码旁路。明确选择/粘贴附件保留，Unix 使用 O_NONBLOCK/O_NOCTTY 打开后核对实际句柄为普通文件及长度；普通文件 symlink 仍可用，设备/FIFO 拒绝。
+- 边界：HTTP最多8MiB+1哨兵读取、异步30秒期限；data编码文本32MiB、解码8MiB；栅格4096×4096、decoder max_alloc64MiB，仅首帧并规范化PNG，每缓存最多16条。SVG不自动预览，GIF仅首帧，本地Markdown图片须改为显式附件；超限显示fallback/安全提示，EN/ZH同步。
+- **先红后绿**：[原解析器接受/dev/zero，退出101](<f02-evidence/red.log>)；修复后[10项图片+4项附件测试](<f02-evidence/final.log>)退出0，包括真实FIFO、symlink→设备、正常附件链接、unknown Content-Length超限HTTP、data容量/尺寸、取消/重复引用及16条预算。旧map断言不适合统一缓存曾失败，改为保留stable URI断言而非降低取消要求；预算测试最初在绘制阶段外load触发GPUI约束，改为真实17张Markdown渲染。
+- w8独立发现旁路回归误用规范化asset key的证据缺口；改用原始bytes后，[手动移除override](<f02-evidence/bypass-mutant.log>)准确退出101，恢复后通过。HTTP状态和MAX+1共[3项实际mutator变异](<f02-evidence/mutation.log>)全部killed、退出0；新loader CC≤8、resolve CC4、附件load CC19，Cov/CRAP N/A，dryer0.8无候选。不以局部3/3声称所有站点/全仓覆盖。
+- w8最终独立复核：执行精确候选已构建测试二进制，10图片+4附件均通过，未独立完整重构建；[独立日志](<repair-evidence/gds-w8-f02-final-independent.log>)、Finding `553e9a08-a7be-4c41-a2b5-81a4d97db47b`，最终全仓重构建另由w1负责。
+- 限制：每消息缓存不是全进程预算，很多消息仍可累计占用；异步deadline不能抢占同步decoder，不承诺CPU隔离或真实GUI OOM压测。HTTP仍可访问loopback/private网络，不将本项称作SSRF修复。非Unix特殊文件行为无动态验证。
+
 ## F-03：保留原 shell 输入，以新标签页切换目录
 
 - 集成：`3f254ef522c92600ea037e1df8c875e07ceeaec8`；[修复与命令记录](<f03-terminal-fix.md>)。
