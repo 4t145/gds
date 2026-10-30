@@ -40,6 +40,73 @@ fn named_batch(
 }
 
 #[test]
+fn cross_device_cleanup_preserves_concurrent_additions_and_edits() {
+    for mutation in ["new", "edit", "replace"] {
+        let root = tempfile::tempdir().expect("create cleanup fixture");
+        let source = root.path().join("source");
+        let destination = root.path().join("destination");
+        fs::create_dir(&source).expect("create source");
+        fs::write(source.join("copied"), b"original").expect("write source");
+        let item = super::Item {
+            source: source.clone(),
+            destination: destination.clone(),
+            destination_committed: false,
+            result: Ok(()),
+        };
+        let prepared = Prepared::new(&item).expect("prepare cross-device copy");
+        let copied = super::Node {
+            source: source.clone(),
+            destination: destination.clone(),
+        }
+        .copy_root()
+        .expect("copy before deterministic cleanup barrier");
+        let changed = source.join(if mutation == "new" { "new" } else { "copied" });
+        if mutation == "replace" {
+            fs::rename(&changed, root.path().join("old-inode")).expect("retain original inode");
+        }
+        fs::write(&changed, b"concurrent data").expect("simulate concurrent source writer");
+        let result = prepared.remove_source(&copied);
+        assert!(
+            result.is_err(),
+            "changed source must report incomplete move"
+        );
+        assert_eq!(
+            fs::read(&changed).expect("concurrent data must survive cleanup"),
+            b"concurrent data"
+        );
+        assert_eq!(
+            fs::read(destination.join("copied")).expect("committed copy"),
+            b"original"
+        );
+        assert!(!destination.join("new").exists());
+    }
+}
+
+#[test]
+fn cross_device_directory_move_removes_only_the_copied_tree() {
+    let root = tempfile::tempdir().expect("create directory move fixture");
+    let source = root.path().join("tree");
+    let destination = root.path().join("destination");
+    fs::create_dir_all(source.join("child")).expect("create source tree");
+    fs::create_dir(&destination).expect("create destination");
+    fs::write(source.join("child/file"), b"payload").expect("write payload");
+    symlink("missing", source.join("child/link")).expect("create dangling link");
+    let report = batch(vec![source.clone()], &destination, Mode::Move)
+        .execute_with_rename(|_, _| Err(Errno::XDEV));
+    assert!(report.items[0].result.is_ok(), "{report:?}");
+    assert!(report.items[0].destination_committed);
+    assert!(!source.exists());
+    assert_eq!(
+        fs::read(destination.join("tree/child/file")).expect("read moved payload"),
+        b"payload"
+    );
+    assert_eq!(
+        fs::read_link(destination.join("tree/child/link")).expect("read moved link"),
+        Path::new("missing")
+    );
+}
+
+#[test]
 fn copy_preserves_raw_names_links_and_readonly_directory_contents() {
     let root = tempfile::tempdir().expect("create transfer fixture");
     let source = root.path().join("source");
