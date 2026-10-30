@@ -95,7 +95,7 @@ pub enum Error {
     #[error("The terminal has stopped")]
     Closed,
     #[error(
-        "Switch folders only at the shell prompt; the terminal is busy or its foreground shell cannot be verified"
+        "Cannot verify empty shell input; open a new terminal in the desired folder or type cd manually"
     )]
     ShellBusy,
     #[error("This shell does not support the switch-folder command")]
@@ -177,7 +177,6 @@ pub(crate) struct ColorQuery {
 }
 
 pub(crate) struct DirectoryChange {
-    pub command: Vec<u8>,
     pub result: Sender<Result<(), Error>>,
 }
 
@@ -571,13 +570,14 @@ impl Session {
         Ok(())
     }
 
-    /// Explicitly submit a quoted cd command, only while the original shell is
-    /// foreground. Never sends interrupt or line-clearing sequences.
+    /// Request an in-place directory change. Currently fails closed: without
+    /// trusted shell integration we cannot prove its editing buffer is empty.
+    /// No command, Enter, interrupt or line-clearing sequence is injected.
+    /// Open a new terminal at the desired directory or type cd manually instead.
     ///
     /// # Errors
-    /// Rejects invalid/unrepresentable paths, unsupported shells, busy input,
-    /// foreground jobs, or a stopped terminal. Success means command submitted,
-    /// not confirmation that the shell executed cd successfully.
+    /// Rejects invalid/unrepresentable paths, unsupported shells, unverified
+    /// shell input (`ShellBusy`), or a stopped terminal.
     pub async fn change_directory(&self, path: &std::path::Path) -> Result<(), Error> {
         let command = super::directory::command(path)?;
         let (result, received) = async_channel::bounded(1);
@@ -593,7 +593,7 @@ impl Session {
             if command.len() > MAX_INPUT_BYTES {
                 return Err(Error::InputQueueFull);
             }
-            control.directory_change = Some(DirectoryChange { command, result });
+            control.directory_change = Some(DirectoryChange { result });
         }
         state.wake();
         received.recv().await.unwrap_or(Err(Error::Closed))
