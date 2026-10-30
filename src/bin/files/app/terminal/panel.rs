@@ -176,7 +176,7 @@ impl Panel {
             })
     }
 
-    pub fn change_directory(&self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn change_directory(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_change_directory(cx) || window.has_active_dialog(cx) {
             return;
         }

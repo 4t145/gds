@@ -13,7 +13,7 @@
 1. 先仅添加[真实 PTY 回归](<../../src/terminal/session/tests.rs>) `directory_change_does_not_submit_unconfirmed_shell_input`，生产代码保持基线。交互式 POSIX sh 输入 `printf EXECUTED > UNCONFIRMED_EXECUTED #`，无 Enter，等待回显且应用队列为空，然后调用目录切换。随后测试主动清行并通过 shell printf 往返作为顺序屏障。清行仅属于测试，不属于产品行为；使用行删除而非 Ctrl-C 信号，避免信号丢弃先前输入造成假通过。
 2. `nix develop --command cargo test --locked --lib terminal::session::tests::directory_change_does_not_submit_unconfirmed_shell_input -- --exact --nocapture`：**退出101**，marker 已生成，准确失败在“目录切换提交了未确认输入”断言；不是编译失败或超时。诊断 job `bash-077b702f05a14ce6`。
 3. 根因修复后，`nix develop --command cargo test --locked --lib terminal::session::tests -- --nocapture`：**退出0，12 passed**（包含隔离子进程的退出屏障测试）。诊断 job `bash-f4657fdb0823442b`。回归 marker 不生成；原交互测试保留手工 cd 和前台作业断言，改为断言自动请求拒绝。
-4. GUI feature 面板测试改为验证新标签页的 cwd/选择状态和两个旧 shell 的身份、cwd 均保留。运行结果在候选提交前记录于公共 F-03 线程。
+4. `nix develop --command cargo test --locked --features gui-tests --bin gds-files app::terminal::panel::tests -- --nocapture`：首次编译退出101，发现 fresh-tab 动作需要 `&mut self`（E0596）；修正签名后重跑 **退出0，6 passed**，诊断 job `bash-40a3965ce780434b`。GUI 面板测试验证新标签页的 cwd/选择状态和两个旧 shell 的身份、cwd 均保留。编译警告为仓库已有未使用代码警告，不作为测试失败隐去。
 
 ## 局部指标
 
