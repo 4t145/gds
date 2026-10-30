@@ -31,6 +31,29 @@ fn drain_until_quiet(receiver: &async_channel::Receiver<()>) {
 }
 
 #[test]
+fn ignores_unrelated_files_in_watched_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let target = directory.path().join("palette.json");
+    fs::write(&target, "initial").unwrap();
+    let (sender, receiver) = async_channel::bounded(1);
+    let mut sources = Sources::new(sender);
+    sources.set_paths(vec![target.clone()]).unwrap();
+    fs::write(&target, "observed").unwrap();
+    changed(&receiver);
+    drain_until_quiet(&receiver);
+    fs::write(directory.path().join("unrelated.json"), "ignored").unwrap();
+    futures_lite::future::block_on(futures_lite::future::race(
+        async {
+            receiver.recv().await.unwrap();
+            panic!("unrelated event was forwarded");
+        },
+        async {
+            async_io::Timer::after(Duration::from_millis(150)).await;
+        },
+    ));
+}
+
+#[test]
 fn watches_parent_symlink_replacement_and_new_target_changes() {
     parent_symlink_replacement(true);
 }
