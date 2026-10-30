@@ -178,8 +178,94 @@ fn assert_png(cache: &Entity<Cache>, probe: &Probe, cx: &App) -> Arc<RenderImage
     image
 }
 
+#[test]
+fn image_bytes_and_decoded_dimensions_are_bounded() {
+    assert!(loading::normalized(&vec![0; loading::MAX_BYTES + 1]).is_err());
+    let wide = image::DynamicImage::new_rgba8(4097, 1);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    wide.write_to(&mut bytes, image::ImageFormat::Png)
+        .expect("PNG");
+    assert!(loading::normalized(bytes.get_ref()).is_err());
+    let uri = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes.get_ref())
+    );
+    assert!(decode_data_uri(&uri).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn conversation_image_fifo_and_symlink_are_not_authorized() {
+    let dir = tempfile::tempdir().expect("directory");
+    let fifo = dir.path().join("image.png");
+    nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRUSR).expect("FIFO");
+    let link = dir.path().join("zero.png");
+    std::os::unix::fs::symlink("/dev/zero", &link).expect("link");
+    for path in [&fifo, &link] {
+        let uri = url::Url::from_file_path(path).expect("file URL");
+        assert!(resolve(&Resource::Uri(uri.as_str().to_owned().into()), None).is_err());
+        assert!(resolve(&Resource::from(path.clone()), None).is_err());
+    }
+}
+
 #[gpui_kit::test]
-fn markdown_local_paths_with_spaces_file_uri_and_relative_directory_render_real_png(
+fn http_unknown_length_is_bounded_and_rejected_before_decode(cx: &mut TestAppContext) {
+    init(cx);
+    cx.update(|cx| {
+        cx.set_http_client(FakeHttpClient::create(|_| async {
+            Ok(Response::builder()
+                .status(200)
+                .body(vec![0; loading::MAX_BYTES + 1].into())
+                .expect("response"))
+        }))
+    });
+    let block = cx.update(|cx| {
+        markdown_block(
+            "oversize",
+            "![image](https://example.invalid/big.png)".into(),
+            None,
+            cx,
+        )
+    });
+    let cache = block.cache.clone();
+    let window = window(cx, vec![block]);
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!cache.read(cx).errors.is_empty());
+        assert!(
+            cache
+                .read(cx)
+                .inline
+                .values()
+                .all(|entry| matches!(entry.result, Some(Err(_))))
+        );
+    })
+    .expect("bounded HTTP");
+}
+
+#[test]
+fn conversation_images_reject_client_files_and_special_files() {
+    for address in [
+        "/dev/zero",
+        "/dev/random",
+        "file:///dev/zero",
+        "/tmp/private.png",
+        "relative.png",
+    ] {
+        assert!(
+            resolve(
+                &Resource::Uri(address.into()),
+                Some(std::path::Path::new("/tmp"))
+            )
+            .is_err(),
+            "untrusted image address: {address}"
+        );
+    }
+}
+
+#[gpui_kit::test]
+fn markdown_local_paths_with_spaces_file_uri_and_relative_directory_are_denied(
     cx: &mut TestAppContext,
 ) {
     init(cx);
@@ -231,13 +317,9 @@ fn markdown_local_paths_with_spaces_file_uri_and_relative_directory_render_real_
             .zip(&probes)
             .zip(&caches)
         {
-            assert_png(cache, probe, cx);
-            let bounds = window.find(id).bounds();
-            assert!(
-                bounds.size.height >= px(HEIGHT as f32),
-                "Markdown reserves image height: {bounds:?}"
-            );
-            assert!(bounds.size.width <= px(300.));
+            let _ = (id, probe);
+            assert!(!cache.read(cx).errors.is_empty());
+            assert!(cache.read(cx).inline.is_empty());
         }
     })
     .expect("local Markdown images");
@@ -339,7 +421,7 @@ fn inline_uri(parameter: &str) -> SharedUri {
 }
 
 #[gpui_kit::test]
-fn embedded_assets_are_kept_until_the_last_document_releases_them(cx: &mut TestAppContext) {
+fn embedded_images_never_bypass_the_conversation_cache(cx: &mut TestAppContext) {
     init(cx);
     let first = inline_uri("first-document");
     let second = inline_uri("second-document");
@@ -354,7 +436,7 @@ fn embedded_assets_are_kept_until_the_last_document_releases_them(cx: &mut TestA
     cx.run_until_parked();
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        assert!(source.is_asset_cached(cx));
+        assert!(!source.is_asset_cached(cx));
     })
     .expect("native embedded image");
     for remaining in [1, 0] {
@@ -370,7 +452,7 @@ fn embedded_assets_are_kept_until_the_last_document_releases_them(cx: &mut TestA
         })
         .expect("release document");
         cx.run_until_parked();
-        cx.update(|cx| assert_eq!(source.is_asset_cached(cx), remaining != 0));
+        cx.update(|cx| assert!(!source.is_asset_cached(cx)));
     }
 }
 
@@ -418,7 +500,7 @@ fn content_replacement_cancels_obsolete_pending_loads_without_cancelling_shared_
     let document = block.markdown.clone().expect("document");
     let window = window(cx, vec![block]);
     cx.run_until_parked();
-    cx.update(|cx| assert_eq!(cache.read(cx).resources.len(), 2));
+    cx.update(|cx| assert_eq!(cache.read(cx).inline.len(), 2));
     cx.update(|cx| {
         document.update(cx, |state, cx| {
             state.set_text(
@@ -432,7 +514,7 @@ fn content_replacement_cancels_obsolete_pending_loads_without_cancelling_shared_
         old_sender.send(()).is_err(),
         "obsolete HTTP future was cancelled"
     );
-    cx.update(|cx| assert_eq!(cache.read(cx).resources.len(), 1));
+    cx.update(|cx| assert_eq!(cache.read(cx).inline.len(), 1));
     stable_sender
         .send(())
         .expect("still referenced request survives");
@@ -440,7 +522,9 @@ fn content_replacement_cancels_obsolete_pending_loads_without_cancelling_shared_
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(cache.read(cx).errors.is_empty());
-        let image = cache.read(cx).resources[&Resource::Uri(stable.into())].get();
+        let image = cache.read(cx).inline[&SharedUri::from(stable)]
+            .result
+            .clone();
         assert!(matches!(image, Some(Ok(_))));
         assert_eq!(requests.lock().expect("requests").len(), 2);
         // Start inline decoding and remove its owner before its task can run.
@@ -453,15 +537,16 @@ fn content_replacement_cancels_obsolete_pending_loads_without_cancelling_shared_
                 window,
                 cx,
             );
-            assert!(cache.inline.is_empty());
+            assert_eq!(cache.inline.len(), 1);
         });
     })
     .expect("shared request and cancelled inline task");
     cx.run_until_parked();
     cx.update(|cx| {
         assert!(
-            cache.read(cx).inline.is_empty(),
-            "cancelled task cannot repopulate cache"
+            cache.read(cx).inline.len() == 1
+                && cache.read(cx).inline.contains_key(&SharedUri::from(stable)),
+            "cancelled task cannot repopulate cache; stable resource remains"
         )
     });
 }

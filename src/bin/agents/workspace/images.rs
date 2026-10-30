@@ -1,4 +1,4 @@
-//! Conversation-owned image loading, including paths supplied by local agents.
+//! Bounded conversation image loading. Messages never authorize client filesystem access.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -6,14 +6,17 @@ use base64::Engine as _;
 use gds_uim::el;
 use gpui_kit::base::{Text, TextViewState};
 use gpui_kit::{
-    EntityId, Image, ImageCache, ImageCacheError, ImageCacheItem, ImageFormat, RenderImage,
-    Resource, SharedUri, WeakEntity, img,
+    EntityId, Image, ImageCache, ImageCacheError, ImageFormat, RenderImage, Resource, SharedUri,
+    WeakEntity, img,
 };
 
 use super::*;
 
-mod embedded;
+mod loading;
 mod references;
+
+const MAX_CACHED_IMAGES: usize = 16;
+const IMAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(all(test, feature = "gui-tests"))]
 mod tests;
@@ -32,12 +35,10 @@ struct Inline {
 pub(super) struct Cache {
     owner: WeakEntity<Self>,
     directory: Option<PathBuf>,
-    resources: HashMap<Resource, ImageCacheItem>,
     inline: HashMap<SharedUri, Inline>,
     errors: BTreeMap<u64, String>,
     fallback: Option<Arc<RenderImage>>,
     content: Option<u64>,
-    embedded: embedded::Owners,
 }
 
 impl Cache {
@@ -45,20 +46,12 @@ impl Cache {
         let cache = cx.new(|cx| Self {
             owner: cx.weak_entity(),
             directory,
-            resources: HashMap::new(),
             inline: HashMap::new(),
             errors: BTreeMap::new(),
             fallback: None,
             content: None,
-            embedded: embedded::Owners::default(),
         });
         cx.observe_release(&cache, |cache, cx| {
-            cache.embedded.release(cx);
-            for entry in cache.resources.values() {
-                if let Some(Ok(image)) = entry.get() {
-                    cx.drop_image(image, None);
-                }
-            }
             for entry in cache.inline.values() {
                 if let Some(Ok(image)) = &entry.result {
                     cx.drop_image(image.clone(), None);
@@ -78,6 +71,9 @@ impl Cache {
         window: &Window,
         cx: &mut App,
     ) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
+        if !self.inline.contains_key(uri) && self.inline.len() >= MAX_CACHED_IMAGES {
+            return Some(Err(image_policy_error()));
+        }
         self.start_inline(uri, cx);
         let entry = self.inline.get_mut(uri).expect("inline image was inserted");
         if entry.result.is_none() {
@@ -92,10 +88,16 @@ impl Cache {
             let uri = key.clone();
             let address = uri.clone();
             let owner = self.owner.clone();
+            let client = cx.http_client();
             let renderer = cx.svg_renderer();
+            let timeout = cx.background_executor().timer(IMAGE_TIMEOUT);
             let decode = cx.background_executor().spawn(async move {
-                decode_data_uri(address.as_ref())
-                    .and_then(|image| image.to_image_data(renderer).map_err(Into::into))
+                let load = loading::load(address.as_ref(), client, renderer);
+                futures::pin_mut!(load, timeout);
+                match futures::future::select(load, timeout).await {
+                    futures::future::Either::Left((result, _)) => result,
+                    futures::future::Either::Right(_) => Err(image_policy_error()),
+                }
             });
             let task = cx.spawn(async move |cx| {
                 let result = decode.await;
@@ -127,17 +129,10 @@ impl Cache {
             .filter(|resource| !matches!(resource, Resource::Uri(uri) if uri.starts_with("data:")))
             .filter_map(|resource| resolve(resource, self.directory.as_deref()).ok())
             .collect();
-        self.resources.retain(|resource, entry| {
-            if resources.contains(resource) {
-                return true;
-            }
-            if let Some(Ok(image)) = entry.get() {
-                cx.drop_image(image, Some(window));
-            }
-            false
-        });
         self.inline.retain(|uri, entry| {
-            if references.contains(&Resource::Uri(uri.clone())) {
+            if references.contains(&Resource::Uri(uri.clone()))
+                || resources.contains(&Resource::Uri(uri.clone()))
+            {
                 return true;
             }
             if let Some(Ok(image)) = &entry.result {
@@ -162,21 +157,13 @@ impl Cache {
         if self.content != Some(content) {
             self.content = Some(content);
             if let Some(references) = markdown_references(source) {
-                self.embedded
-                    .update(&references, self.owner.entity_id(), cx);
                 self.retain(references, window, cx);
             }
-        }
-        // TextView renders embedded bytes directly, bypassing ImageCache. Keep
-        // application validation/error reporting and document ownership explicit.
-        for uri in self.embedded.uris() {
-            let _ = self.load(&Resource::Uri(uri), window, cx);
         }
     }
 
     fn image_changed(&mut self, source: &SharedUri, window: &mut Window, cx: &mut App) {
         self.content = None;
-        self.embedded.release(cx);
         self.retain(
             HashSet::from_iter([Resource::Uri(source.clone())]),
             window,
@@ -215,11 +202,8 @@ impl ImageCache for Cache {
         let result = match resource {
             Resource::Uri(uri) if uri.starts_with("data:") => self.load_inline(uri, window, cx),
             _ => match resolve(resource, self.directory.as_deref()) {
-                Ok(source) => self
-                    .resources
-                    .entry(source.clone())
-                    .or_insert_with(|| ImageCacheItem::new(&source, cx))
-                    .use_image(window),
+                Ok(Resource::Uri(uri)) => self.load_inline(&uri, window, cx),
+                Ok(_) => Some(Err(image_policy_error())),
                 Err(error) => Some(Err(error)),
             },
         };
@@ -349,65 +333,40 @@ fn markdown_references(source: &str) -> Option<HashSet<Resource>> {
     references::markdown(source)
 }
 
-/// Resolves image addresses using the conversation's captured working directory.
+/// Accepts only HTTP(S) references; message paths cannot authorize local reads.
 ///
 /// # Errors
-/// Returns an error for unsupported addresses or paths without a valid base directory.
+/// Returns an error for local paths, file URLs and unsupported addresses.
 fn resolve(
     resource: &Resource,
-    directory: Option<&std::path::Path>,
+    _directory: Option<&std::path::Path>,
 ) -> Result<Resource, ImageCacheError> {
     let Resource::Uri(uri) = resource else {
-        return Ok(resource.clone());
+        return Err(image_policy_error());
     };
-    #[cfg(target_os = "windows")]
-    if std::path::Path::new(uri.as_ref()).is_absolute() {
-        return Ok(Resource::from(PathBuf::from(uri.as_ref())));
-    }
     match url::Url::parse(uri.as_ref()) {
         Ok(mut url) if matches!(url.scheme(), "http" | "https") => {
             url.set_fragment(None);
             Ok(Resource::Uri(url.as_str().to_owned().into()))
         }
-        Ok(url) if url.scheme() == "file" => url
-            .to_file_path()
-            .map(Resource::from)
-            .map_err(|_| ImageCacheError::Asset(crate::i18n::tr!("image-local-path").into())),
+
         Ok(_) => Err(ImageCacheError::Asset(
             crate::i18n::tr!("image-protocol").into(),
         )),
-        Err(url::ParseError::RelativeUrlWithoutBase) => {
-            let path = std::path::Path::new(uri.as_ref());
-            let base = if path.is_absolute() {
-                std::path::Path::new("/")
-            } else {
-                directory.ok_or_else(|| {
-                    ImageCacheError::Asset(crate::i18n::tr!("image-no-directory").into())
-                })?
-            };
-            let url = url::Url::from_directory_path(base)
-                .map_err(|_| {
-                    ImageCacheError::Asset(crate::i18n::tr!("image-directory-relative").into())
-                })?
-                .join(uri.as_ref())
-                .map_err(|_| {
-                    ImageCacheError::Asset(crate::i18n::tr!("image-invalid-address").into())
-                })?;
-            url.to_file_path()
-                .map(Resource::from)
-                .map_err(|_| ImageCacheError::Asset(crate::i18n::tr!("image-invalid-path").into()))
-        }
         Err(_) => Err(ImageCacheError::Asset(
             crate::i18n::tr!("image-invalid-address").into(),
         )),
     }
 }
 
-/// Decodes an embedded image into its original encoded bytes.
+/// Decodes a bounded embedded raster into a single normalized PNG frame.
 ///
 /// # Errors
 /// Returns an error for unsupported image formats or malformed URI and Base64 data.
 fn decode_data_uri(uri: &str) -> Result<Image, ImageCacheError> {
+    if uri.len() > loading::MAX_BYTES * 4 {
+        return Err(image_policy_error());
+    }
     let (description, data) = uri
         .strip_prefix("data:")
         .and_then(|uri| uri.split_once(','))
@@ -439,7 +398,8 @@ fn decode_data_uri(uri: &str) -> Result<Image, ImageCacheError> {
     } else {
         percent_decode(data)?
     };
-    Ok(Image::from_bytes(format, bytes))
+    let _ = format;
+    loading::normalized(&bytes)
 }
 
 /// Decodes URI bytes without treating literal plus signs as spaces.
@@ -466,6 +426,10 @@ fn percent_decode(data: &str) -> Result<Vec<u8>, ImageCacheError> {
         }
     }
     Ok(decoded)
+}
+
+fn image_policy_error() -> ImageCacheError {
+    ImageCacheError::Asset(crate::i18n::tr!("image-resource-limit").into())
 }
 
 fn failure_message(error: &ImageCacheError) -> String {

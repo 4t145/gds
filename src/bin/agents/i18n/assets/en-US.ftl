@@ -661,7 +661,8 @@ image-invalid-path = Could not resolve image path
 image-load-error = Could not load image: { $detail }
 image-local-path = Image address must point to a local file
 image-no-directory = Set a working directory for relative image addresses
-image-protocol = Use an HTTP, HTTPS, or local image address
+image-protocol = Local image references are blocked; attach local images explicitly
+image-resource-limit = Image exceeds safety limits or uses an unsupported format
 image-read-failed = Could not read local file
 queue-count = { $count ->
         [one] { $count } message queued
