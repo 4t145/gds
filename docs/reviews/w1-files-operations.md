@@ -19,6 +19,7 @@
 - 清理从父目录描述符出发，逐级 `openat(NO_FOLLOW|DIRECTORY)`，只对清单中的已核对叶子调用 `unlinkat`；目录仅使用非递归 `rmdir`。新增条目、已替换/改写文件或目录身份变化会保留并报告不完整移动，已提交目的地不回滚。
 - 回归在真实临时目录中执行生产 copy→cleanup 组成步骤，在明确屏障处分别新增文件、原 inode 改写、替换 inode。安全断言在修复前退出101（`changed source must report incomplete move`，job `bash-9b9767530a574af8`），证明旧代码误报成功。修复后该回归及既有测试通过；另补正常跨设备 fallback 的嵌套目录/悬空链接移动。初次完整 GUI 冷编译为缩小 red 反馈范围主动取消，不能当成测试通过。
 - 竞争边界：这不是文件系统事务/快照或与外部写入者的锁定协议；最终 metadata 检查与 `unlinkat` 之间仍有极短 TOCTOU，恶意进程可在其中改写或替换叶子。时间戳粗粒度/非本地文件系统也可能削弱检测。新方案不再递归枚举并删除尚未复制的内容，但**不宣称任意并发写入下的原子跨设备移动**；要取得后者必须外部停止写入或采用快照/隔离。清理过程中错误可能已删除较早的已复制条目，因此部分成功和剩余源必须由调用方显示。硬链接别名因删除首个名字改变 ctime，可能保守地留下后续名字并报告部分成功，而不是冒险删除。
+- 本轮实际验证：独立 harness 的 names/transfer 共16项通过（job `bash-f4183cd1759e4dd8`，退出0）；真实应用 `nix develop --command cargo test --locked --bin gds-files operations::transfer::tests -- --nocapture` 10项通过、187项过滤（job `bash-dd5805c72aa0415b`，退出0）。`crapper --no-coverage` 得到新 `check` CC7、`remove_at` CC12；**没有真实覆盖率/CRAP分数**。`dryer --threshold 0.8` 无重复候选。对 `check` 首个布尔连接/size比较及目录删除前身份检查三项有界变异，3 killed / 0 survived（job `bash-8838e97a039149e9`，退出0）；`--no-coverage` 只控制选位，不是覆盖率证明，也非48个位点全量变异成绩。
 - 独立复核、最终整合树验证及命令结果见综合修复摘要；本节不将前轮审查结果冒充本轮最终门禁。
 
 ## 可重现方式（只写临时目录）
