@@ -2,7 +2,19 @@
 
 use async_channel::Sender;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::{collections::BTreeSet, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
+
+// Resolve the existing prefix even when the watched file has not been created.
+// This makes parent-link retargeting visible in the cached target identity too.
+fn resolved_target(path: &Path) -> Option<PathBuf> {
+    path.ancestors().find_map(|ancestor| {
+        let resolved = std::fs::canonicalize(ancestor).ok()?;
+        Some(resolved.join(path.strip_prefix(ancestor).ok()?))
+    })
+}
 
 pub struct Sources {
     requested: Vec<PathBuf>,
@@ -40,7 +52,7 @@ impl Sources {
         let targets: BTreeSet<_> = self
             .requested
             .iter()
-            .flat_map(|path| std::iter::once(path.clone()).chain(std::fs::canonicalize(path).ok()))
+            .flat_map(|path| std::iter::once(path.clone()).chain(resolved_target(path)))
             .collect();
         let directories: BTreeSet<_> = targets
             .iter()
