@@ -13,15 +13,43 @@ fn changed(receiver: &async_channel::Receiver<()>) {
     ));
 }
 
+fn drain_until_quiet(receiver: &async_channel::Receiver<()>) {
+    futures_lite::future::block_on(async {
+        while futures_lite::future::race(
+            async {
+                receiver.recv().await.expect("live file watcher");
+                true
+            },
+            async {
+                async_io::Timer::after(Duration::from_millis(150)).await;
+                false
+            },
+        )
+        .await
+        {}
+    });
+}
+
 #[test]
 fn watches_parent_symlink_replacement_and_new_target_changes() {
+    parent_symlink_replacement(true);
+}
+
+#[test]
+fn watches_missing_file_after_parent_symlink_replacement() {
+    parent_symlink_replacement(false);
+}
+
+fn parent_symlink_replacement(file_exists: bool) {
     let directory = tempfile::tempdir().expect("managed directory sources");
     let first = directory.path().join("first");
     let second = directory.path().join("second");
     fs::create_dir(&first).unwrap();
     fs::create_dir(&second).unwrap();
-    for target in [&first, &second] {
-        fs::write(target.join("palette.json"), "initial").unwrap();
+    if file_exists {
+        for target in [&first, &second] {
+            fs::write(target.join("palette.json"), "initial").unwrap();
+        }
     }
     let managed = directory.path().join("managed");
     std::os::unix::fs::symlink(&first, &managed).unwrap();
@@ -38,7 +66,7 @@ fn watches_parent_symlink_replacement_and_new_target_changes() {
     sources
         .refresh()
         .expect("follow replacement parent symlink");
-    while receiver.try_recv().is_ok() {}
+    drain_until_quiet(&receiver);
     fs::write(second.join("palette.json"), "updated").unwrap();
     changed(&receiver);
 }
