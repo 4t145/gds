@@ -110,6 +110,7 @@ fn text_view(state: &Entity<TextViewState>, cx: &App) -> TextView {
     let font_size = theme::content_font_size(cx);
     gds_uim::el! {
         ($(state)).TextView::new {
+            image_source: $(|uri| gpui_kit::ImageSource::Resource(gpui_kit::Resource::Uri(uri.clone())));
             style: $(markdown_style(cx));
             font_family: $(cx.theme().font_family.clone());
             text_size: $(font_size);

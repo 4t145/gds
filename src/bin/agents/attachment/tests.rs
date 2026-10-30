@@ -86,6 +86,25 @@ fn files_and_images_become_native_acp_content_with_escaped_uris() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn explicit_attachment_rejects_devices_and_fifo_but_allows_regular_symlink() {
+    let directory = tempfile::tempdir().expect("directory");
+    let fifo = directory.path().join("image.png");
+    nix::unistd::mkfifo(&fifo, nix::sys::stat::Mode::S_IRUSR).expect("FIFO");
+    assert!(Attachment::load(&fifo).is_err());
+    assert!(Attachment::load(Path::new("/dev/zero")).is_err());
+    let regular = directory.path().join("regular.png");
+    fs::write(
+        &regular,
+        include_bytes!("../workspace/images/assets/sample.png"),
+    )
+    .expect("PNG");
+    let link = directory.path().join("linked.png");
+    std::os::unix::fs::symlink(&regular, &link).expect("symlink");
+    assert!(Attachment::load(&link).is_ok());
+}
+
 #[test]
 fn rejects_directories_and_oversized_files_without_reading_them_into_memory() {
     let directory = tempfile::tempdir().expect("temporary directory");
