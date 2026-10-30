@@ -213,9 +213,11 @@ fn http_unknown_length_is_bounded_and_rejected_before_decode(cx: &mut TestAppCon
     init(cx);
     cx.update(|cx| {
         cx.set_http_client(FakeHttpClient::create(|_| async {
+            let mut body = png();
+            body.resize(loading::MAX_BYTES + 1, 0);
             Ok(Response::builder()
                 .status(200)
-                .body(vec![0; loading::MAX_BYTES + 1].into())
+                .body(body.into())
                 .expect("response"))
         }))
     });
@@ -242,6 +244,25 @@ fn http_unknown_length_is_bounded_and_rejected_before_decode(cx: &mut TestAppCon
         );
     })
     .expect("bounded HTTP");
+}
+
+#[gpui_kit::test]
+fn image_cache_refuses_more_than_its_resource_budget(cx: &mut TestAppContext) {
+    init(cx);
+    let source = (0..=MAX_CACHED_IMAGES)
+        .map(|index| format!("![image]({})", inline_uri(&index.to_string())))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let block = cx.update(|cx| markdown_block("budget", source, None, cx));
+    let cache = block.cache.clone();
+    let window = window(cx, vec![block]);
+    cx.run_until_parked();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(cache.read(cx).inline.len(), MAX_CACHED_IMAGES);
+        assert_eq!(cache.read(cx).errors.len(), 1);
+    })
+    .expect("resource budget");
 }
 
 #[test]
@@ -425,7 +446,9 @@ fn embedded_images_never_bypass_the_conversation_cache(cx: &mut TestAppContext) 
     init(cx);
     let first = inline_uri("first-document");
     let second = inline_uri("second-document");
-    let source = gpui_kit::ImageSource::Image(Arc::new(decode_data_uri(&first).expect("PNG")));
+    // Probe the original bytes used by Base's default inline decoder, not our
+    // normalized PNG (which has a different asset key).
+    let source = gpui_kit::ImageSource::Image(Arc::new(Image::from_bytes(ImageFormat::Png, png())));
     let blocks = cx.update(|cx| {
         vec![
             markdown_block("first", format!("![image]({first})"), None, cx),
