@@ -1,5 +1,18 @@
 # 授权修复摘要
 
+## 最终整合树门禁
+
+验证对象为五项生产修复及必要测试全部集成后的 `344f7193de16adb37fa91104ab17ea6e6ccc458d`；后续本摘要/报告提交仅新增文档和证据，不改生产代码。每项独立复核已完成；测试不是全状态空间或真实桌面保证。
+
+| 真实命令（NixOS） | 结果 | 持久日志 |
+|---|---|---|
+| `nix develop --command cargo test --locked --workspace --features agents --lib --bins` | 退出0；88 lib+184 agents+197 files+2 derive = **471 passed** | [workspace](<repair-evidence/gds-w1-final-workspace.log>) |
+| `nix develop --command cargo test --locked --workspace --features gui-tests --lib --bins` | 退出0；96+433+203+2 = **734 passed，2 ignored**（手工benchmark） | [GUI-feature](<repair-evidence/gds-w1-final-gui.log>) |
+| `nix build --no-link .#checks.x86_64-linux.portal` | 退出0，w7最终整合树复跑 | [portal](<repair-evidence/gds-w7-final-portal.log>) |
+| Nix Python `-m unittest discover -s scripts -p test_install_dev.py -v` | 退出0；**8/8 passed**（w1最终复跑） | [installer](<repair-evidence/gds-w1-final-installer-nix.log>) |
+
+w1负责最终Rust套件，w7负责portal，避免重复构建；子进程1项输出不重复累计。原审查464/722数量及中间整合树结果不是本表最终门禁。裸Python不在PATH的127、Nix环境搜索路径警告、F-03编译E0596和F-02测试框架误用均如实保留，不作为成功或安全回归失败原因混用。无真实coverage，因此Cov/CRAP N/A；未声称CRAP<10或完整媒体/平台安全证明。未推送、部署、合并用户分支。
+
 本轮沿用既有审查，用户授权修复 F-01–F-05；仅在 Swarm 私有分支集成，**不合并用户当前分支、不推送、不部署**。原报告的审查阶段记录保持为历史证据，修复结果单独列出。
 
 ## F-01：只清理已复制且未观测到变化的源条目
