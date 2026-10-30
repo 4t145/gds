@@ -136,9 +136,7 @@ async fn close_starting_terminal_skips_dialog_and_preserves_shutdown_barrier(
 
 #[cfg(unix)]
 #[gpui_kit::test]
-async fn folder_switch_targets_only_selected_instance_and_never_creates_one(
-    cx: &mut TestAppContext,
-) {
+async fn folder_switch_opens_new_instance_and_preserves_existing_shells(cx: &mut TestAppContext) {
     use std::{
         path::PathBuf,
         time::{Duration, Instant},
@@ -202,10 +200,13 @@ async fn folder_switch_targets_only_selected_instance_and_never_creates_one(
     loop {
         cx.run_until_parked();
         if cx.update(|cx| {
-            originals[1]
-                .read(cx)
-                .title(cx)
-                .is_some_and(|title| title.as_ref() == target.to_str().expect("UTF-8 path"))
+            panel.read(cx).entries.get(2).is_some_and(|entry| {
+                entry
+                    .terminal
+                    .read(cx)
+                    .title(cx)
+                    .is_some_and(|title| title.as_ref() == target.to_str().expect("UTF-8 path"))
+            })
         }) {
             break;
         }
@@ -214,13 +215,16 @@ async fn folder_switch_targets_only_selected_instance_and_never_creates_one(
     }
     let shutdown = cx.update(|cx| {
         panel.update(cx, |panel, cx| {
-            assert_eq!(panel.entries.len(), 2);
+            assert_eq!(panel.entries.len(), 3);
             assert_eq!(panel.entries[0].terminal, originals[0]);
             assert_eq!(panel.entries[1].terminal, originals[1]);
-            assert_eq!(
-                originals[0].read(cx).title(cx).as_deref(),
-                parent.path().to_str()
-            );
+            assert_eq!(panel.active, Some(panel.entries[2].id));
+            for original in &originals {
+                assert_eq!(
+                    original.read(cx).title(cx).as_deref(),
+                    parent.path().to_str()
+                );
+            }
             panel.shutdown(cx)
         })
     });

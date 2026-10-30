@@ -330,7 +330,7 @@ fn application_quit_waits_for_workers_and_rejects_later_spawns() {
 
 #[cfg(target_os = "linux")]
 #[test]
-fn explicit_directory_change_keeps_shell_and_rejects_foreground_jobs() {
+fn in_place_directory_change_is_rejected_but_manual_cd_and_jobs_work() {
     let parent = tempfile::tempdir().expect("test directory");
     let target = parent.path().join("新 folder ' $HOME");
     std::fs::create_dir(&target).expect("target directory");
@@ -347,7 +347,14 @@ fn explicit_directory_change_keeps_shell_and_rejects_foreground_jobs() {
         .write(b"stty -echo; PS1=''; printf 'READY_%s\\n' switch\r")
         .expect("prepare prompt");
     wait_until(|| screen(&session).contains("READY_switch"));
-    futures_lite::future::block_on(session.change_directory(&target)).expect("submit cd at prompt");
+    assert!(matches!(
+        futures_lite::future::block_on(session.change_directory(&target)),
+        Err(Error::ShellBusy)
+    ));
+    // Explicit terminal typing still works; the application does not inject it.
+    session
+        .write(&super::super::directory::command(&target).unwrap())
+        .expect("manual cd");
     session
         .write(b"printf '\\033]2;%s\\007' \"$PWD\"\r")
         .expect("inspect cwd through process title");
@@ -374,6 +381,51 @@ fn explicit_directory_change_keeps_shell_and_rejects_foreground_jobs() {
     );
     session.terminate();
     futures_lite::future::block_on(session.wait_stopped());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn directory_change_does_not_submit_unconfirmed_shell_input() {
+    let parent = tempfile::tempdir().expect("test directory");
+    let target = parent.path().join("target");
+    std::fs::create_dir(&target).expect("target directory");
+    let marker = parent.path().join("UNCONFIRMED_EXECUTED");
+    let session = Session::spawn(SpawnOptions {
+        cwd: parent.path().to_owned(),
+        shell: Some(shell()),
+        args: vec!["-i".into()],
+        columns: 180,
+        ..SpawnOptions::default()
+    })
+    .expect("interactive shell");
+    session
+        .write(b"PS1=''; printf 'READY_%s\\n' pending\r")
+        .unwrap();
+    wait_until(|| screen(&session).contains("READY_pending"));
+    // No Enter: this command belongs to the user, not to the folder switch.
+    session
+        .write(b"printf EXECUTED > UNCONFIRMED_EXECUTED #")
+        .unwrap();
+    wait_until(|| screen(&session).contains("UNCONFIRMED_EXECUTED #"));
+    wait_until(|| super::lock(&session.0.shared.state.control).input_bytes == 0);
+    let result = futures_lite::future::block_on(session.change_directory(&target));
+    // Cancel the unconfirmed line, then use a shell round-trip as a barrier.
+    // If switching injected Enter, cancelling is already too late.
+    session
+        .write(b"\x15printf 'BARRIER_%s\\n' pending\r")
+        .unwrap();
+    wait_until(|| screen(&session).contains("BARRIER_pending"));
+    let executed = marker.exists();
+    session.terminate();
+    futures_lite::future::block_on(session.wait_stopped());
+    assert!(
+        !executed,
+        "directory switch submitted the user's unconfirmed command"
+    );
+    assert!(
+        result.is_err(),
+        "no shell integration proves the input line empty"
+    );
 }
 
 #[test]

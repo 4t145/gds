@@ -176,32 +176,14 @@ impl Panel {
             })
     }
 
-    pub fn change_directory(&self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn change_directory(&mut self, cwd: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if !self.can_change_directory(cx) || window.has_active_dialog(cx) {
             return;
         }
-        let Some(entry) = self.selected() else {
-            return;
-        };
-        let change = entry.terminal.read(cx).change_directory(cwd, cx);
-        entry
-            .terminal
-            .update(cx, |terminal, cx| terminal.focus(window, cx));
-        cx.spawn(async move |panel, cx| {
-            if let Err(error) = change.await
-                && let Err(closed) = panel.update(cx, |_, cx| {
-                    gds::notifications::info(
-                        format!("{} {error}", i18n::text("files-terminal-switch-failed", cx)),
-                        cx,
-                    );
-                })
-            {
-                eprintln!(
-                    "Files terminal folder-switch result arrived after its panel closed: {closed}"
-                );
-            }
-        })
-        .detach();
+        // Never inject a cd/Enter into the selected shell: its unconfirmed
+        // editing buffer is not observable. Preserve that session and start a
+        // fresh tab with the requested working directory instead.
+        self.open(cwd, window, cx);
     }
 
     pub fn active_title(&self, cx: &App) -> SharedString {

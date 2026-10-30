@@ -159,11 +159,11 @@ impl Terminal {
         self.status(cx).is_running()
     }
 
-    /// Submit an explicit folder switch to this existing instance, without
-    /// restarting it or interrupting a foreground program. Call only at a prompt.
+    /// Request an in-place folder switch. Fails closed without trusted shell
+    /// integration; callers should open a new instance instead of injecting input.
     ///
     /// # Errors
-    /// Fails for unavailable paths, a non-ready/busy session or unsupported shell.
+    /// Fails for unavailable paths, unverified shell input or unsupported shells.
     pub fn change_directory(
         &self,
         cwd: PathBuf,

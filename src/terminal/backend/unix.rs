@@ -197,7 +197,7 @@ impl Backend {
                 lock(&shared.state.metadata).size = size;
                 shared.state.notify();
             }
-            self.change_directory(shared, pending.is_some());
+            self.change_directory(shared);
             self.write_input(shared, &mut pending)?;
             self.read_output(shared, parser, IO_BUDGET)?;
             if parser
@@ -317,27 +317,18 @@ impl Backend {
         }
     }
 
-    fn change_directory(&self, shared: &Shared, pending: bool) {
+    fn change_directory(&self, shared: &Shared) {
         let mut control = lock(&shared.state.control);
         let Some(request) = control.directory_change.take() else {
             return;
         };
         let result = if !self.directory_commands {
             Err(Error::UnsupportedDirectoryCommand)
-        } else if pending
-            || control.input_bytes != 0
-            || !self.pid.is_some_and(|pid| {
-                self.master
-                    .process_group_leader()
-                    .and_then(|group| u32::try_from(group).ok())
-                    == Some(pid)
-            })
-        {
-            Err(Error::ShellBusy)
         } else {
-            control.input_bytes += request.command.len();
-            control.input.push_back(request.command);
-            Ok(())
+            // An empty transport queue and foreground shell PID say nothing
+            // about the shell's editing buffer. Without trusted integration,
+            // injecting a cd plus Enter can submit an unconfirmed user command.
+            Err(Error::ShellBusy)
         };
         // Only the caller receives this one-shot result; a dropped caller does
         // not turn a rejected command into a terminal process failure.
