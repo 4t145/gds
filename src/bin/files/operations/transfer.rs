@@ -10,12 +10,12 @@ use super::names::{self, NamedTarget};
 
 #[cfg(target_os = "linux")]
 use rustix::{
-    fs::{AtFlags, CWD, Dir, FileType, OFlags, RenameFlags},
+    fs::{AtFlags, CWD, Dir, FileType, OFlags, RenameFlags, Stat},
     io::Errno,
 };
 #[cfg(target_os = "linux")]
 use std::{
-    ffi::OsStr,
+    ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     os::unix::{
         ffi::OsStrExt,
@@ -365,24 +365,23 @@ impl Prepared {
 
     /// # Errors
     /// Reports a changed source or removal failure after the complete destination was committed.
-    fn remove_source(&self) -> Result<(), Error> {
-        let current = fs::symlink_metadata(&self.source)
-            .map_err(|error| Error::filesystem("recheck source", &self.source, error))?;
-        if current.dev() != self.metadata.dev() || current.ino() != self.metadata.ino() {
-            return Err(Error::SourceChanged {
-                path: self.source.clone(),
-            });
-        }
-        let result = if current.is_dir() {
-            fs::remove_dir_all(&self.source)
-        } else {
-            fs::remove_file(&self.source)
-        };
-        result.map_err(|source| Error::SourceRemoval {
-            path: self.source.clone(),
-            destination: self.destination.clone(),
-            source,
-        })
+    fn remove_source(&self, copied: &Copied) -> Result<(), Error> {
+        let parent = File::open(self.source.parent().expect("prepared source has parent"))
+            .map_err(|error| Error::filesystem("open source parent", &self.source, error))?;
+        copied
+            .remove_at(
+                &parent,
+                self.source.file_name().expect("prepared source has leaf"),
+                &self.source,
+            )
+            .map_err(|error| match error {
+                Error::Filesystem { source, path, .. } => Error::SourceRemoval {
+                    path,
+                    destination: self.destination.clone(),
+                    source,
+                },
+                error => error,
+            })
     }
 }
 
@@ -412,15 +411,24 @@ impl Item {
             source: prepared.source.clone(),
             destination: stage.payload(),
         };
-        let result = node.copy_root().and_then(|()| {
+        let mut copied = None;
+        let result = node.copy_root().and_then(|manifest| {
+            if manifest.metadata.st_dev != prepared.metadata.dev()
+                || manifest.metadata.st_ino != prepared.metadata.ino()
+            {
+                return Err(Error::SourceChanged {
+                    path: prepared.source.clone(),
+                });
+            }
             Prepared::rename_no_replace(&node.destination, &prepared.destination)
                 .map_err(|error| prepared.rename_error(error))?;
             self.destination_committed = true;
+            copied = Some(manifest);
             Ok(())
         });
         stage.finish(result)?;
         if mode == Mode::Move {
-            prepared.remove_source()?;
+            prepared.remove_source(copied.as_ref().expect("successful copy has manifest"))?;
         }
         Ok(())
     }
@@ -436,7 +444,7 @@ struct Node {
 impl Node {
     /// # Errors
     /// Reports source-parent access or recursive-copy errors.
-    fn copy_root(&self) -> Result<(), Error> {
+    fn copy_root(&self) -> Result<Copied, Error> {
         let parent = File::open(self.source.parent().expect("prepared source has parent"))
             .map_err(|error| Error::filesystem("open source parent", &self.source, error))?;
         self.copy_at(
@@ -447,27 +455,37 @@ impl Node {
 
     /// # Errors
     /// Refuses special entries and propagates reading, writing and permission errors.
-    fn copy_at(&self, parent: &File, name: &OsStr) -> Result<(), Error> {
+    fn copy_at(&self, parent: &File, name: &OsStr) -> Result<Copied, Error> {
         let metadata = rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
             .map_err(|error| Error::filesystem("inspect source", &self.source, error))?;
-        match FileType::from_raw_mode(metadata.st_mode) {
-            FileType::RegularFile => self.copy_file(parent, name),
-            FileType::Directory => self.copy_directory(parent, name),
+        let children = match FileType::from_raw_mode(metadata.st_mode) {
+            FileType::RegularFile => {
+                self.copy_file(parent, name, &metadata)?;
+                Vec::new()
+            }
+            FileType::Directory => self.copy_directory(parent, name, &metadata)?,
             FileType::Symlink => {
                 let target = rustix::fs::readlinkat(parent, name, Vec::new())
                     .map_err(|error| Error::filesystem("read link", &self.source, error))?;
                 symlink(OsStr::from_bytes(target.to_bytes()), &self.destination)
-                    .map_err(|error| Error::filesystem("create link", &self.destination, error))
+                    .map_err(|error| Error::filesystem("create link", &self.destination, error))?;
+                Vec::new()
             }
-            _ => Err(Error::UnsupportedEntry {
-                path: self.source.clone(),
-            }),
-        }
+            _ => {
+                return Err(Error::UnsupportedEntry {
+                    path: self.source.clone(),
+                });
+            }
+        };
+        let after = rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(|error| Error::filesystem("recheck copied source", &self.source, error))?;
+        Copied::check(&metadata, &after, &self.source)?;
+        Ok(Copied { metadata, children })
     }
 
     /// # Errors
     /// Reports a changed entry type or file read/write/permission failures.
-    fn copy_file(&self, parent: &File, name: &OsStr) -> Result<(), Error> {
+    fn copy_file(&self, parent: &File, name: &OsStr, expected: &Stat) -> Result<(), Error> {
         // NOFOLLOW prevents a changed leaf from opening a link; NONBLOCK prevents a changed FIFO from hanging.
         let descriptor = rustix::fs::openat(
             parent,
@@ -477,6 +495,9 @@ impl Node {
         )
         .map_err(|error| Error::filesystem("open file", &self.source, error))?;
         let mut source = File::from(descriptor);
+        let opened = rustix::fs::fstat(&source)
+            .map_err(|error| Error::filesystem("inspect open file", &self.source, error))?;
+        Copied::check(expected, &opened, &self.source)?;
         let metadata = source
             .metadata()
             .map_err(|error| Error::filesystem("inspect open file", &self.source, error))?;
@@ -492,6 +513,9 @@ impl Node {
             .map_err(|error| Error::filesystem("create staged file", &self.destination, error))?;
         io::copy(&mut source, &mut destination)
             .map_err(|error| Error::filesystem("copy file", &self.source, error))?;
+        let after = rustix::fs::fstat(&source)
+            .map_err(|error| Error::filesystem("recheck open file", &self.source, error))?;
+        Copied::check(expected, &after, &self.source)?;
         destination
             .set_permissions(metadata.permissions())
             .map_err(|error| Error::filesystem("set file permissions", &self.destination, error))
@@ -499,7 +523,12 @@ impl Node {
 
     /// # Errors
     /// Reports inaccessible entries or incomplete copies; source links are never traversed.
-    fn copy_directory(&self, parent: &File, name: &OsStr) -> Result<(), Error> {
+    fn copy_directory(
+        &self,
+        parent: &File,
+        name: &OsStr,
+        expected: &Stat,
+    ) -> Result<Vec<(OsString, Copied)>, Error> {
         let descriptor = rustix::fs::openat(
             parent,
             name,
@@ -508,6 +537,9 @@ impl Node {
         )
         .map_err(|error| Error::filesystem("open directory", &self.source, error))?;
         let source = File::from(descriptor);
+        let opened = rustix::fs::fstat(&source)
+            .map_err(|error| Error::filesystem("inspect open directory", &self.source, error))?;
+        Copied::check(expected, &opened, &self.source)?;
         let permissions = source
             .metadata()
             .map_err(|error| Error::filesystem("inspect open directory", &self.source, error))?
@@ -517,6 +549,7 @@ impl Node {
         })?;
         let entries = Dir::read_from(&source)
             .map_err(|error| Error::filesystem("read directory", &self.source, error))?;
+        let mut children = Vec::new();
         for entry in entries {
             let entry = entry
                 .map_err(|error| Error::filesystem("read directory entry", &self.source, error))?;
@@ -524,16 +557,98 @@ impl Node {
             if name == "." || name == ".." {
                 continue;
             }
-            Self {
+            let copied = Self {
                 source: self.source.join(name),
                 destination: self.destination.join(name),
             }
             .copy_at(&source, name)?;
+            children.push((name.to_owned(), copied));
         }
         // Apply readonly source modes only after every child has been written.
         fs::set_permissions(&self.destination, permissions).map_err(|error| {
             Error::filesystem("set directory permissions", &self.destination, error)
-        })
+        })?;
+        let after = rustix::fs::fstat(&source)
+            .map_err(|error| Error::filesystem("recheck open directory", &self.source, error))?;
+        Copied::check(expected, &after, &self.source)?;
+        Ok(children)
+    }
+}
+
+/// Only entries actually copied may be removed. Never enumerate the live tree during cleanup.
+#[cfg(target_os = "linux")]
+struct Copied {
+    metadata: Stat,
+    children: Vec<(OsString, Copied)>,
+}
+
+#[cfg(target_os = "linux")]
+impl Copied {
+    fn same_identity(expected: &Stat, current: &Stat) -> bool {
+        expected.st_dev == current.st_dev
+            && expected.st_ino == current.st_ino
+            && expected.st_mode == current.st_mode
+    }
+
+    fn check(expected: &Stat, current: &Stat, path: &Path) -> Result<(), Error> {
+        if Self::same_identity(expected, current)
+            && expected.st_size == current.st_size
+            && expected.st_mtime == current.st_mtime
+            && expected.st_mtime_nsec == current.st_mtime_nsec
+            && expected.st_ctime == current.st_ctime
+            && expected.st_ctime_nsec == current.st_ctime_nsec
+        {
+            Ok(())
+        } else {
+            Err(Error::SourceChanged {
+                path: path.to_owned(),
+            })
+        }
+    }
+
+    /// # Errors
+    /// Retains changed entries and nonempty directories; reports partial cleanup.
+    fn remove_at(&self, parent: &File, name: &OsStr, path: &Path) -> Result<(), Error> {
+        let current = rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(|error| Error::filesystem("recheck source", path, error))?;
+        Self::check(&self.metadata, &current, path)?;
+        let directory = FileType::from_raw_mode(current.st_mode) == FileType::Directory;
+        if directory {
+            let descriptor = rustix::fs::openat(
+                parent,
+                name,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .map_err(|error| Error::filesystem("open source directory for cleanup", path, error))?;
+            let source = File::from(descriptor);
+            let opened = rustix::fs::fstat(&source)
+                .map_err(|error| Error::filesystem("inspect cleanup directory", path, error))?;
+            Self::check(&self.metadata, &opened, path)?;
+            for (child, copied) in &self.children {
+                copied.remove_at(&source, child, &path.join(child))?;
+            }
+            // Removing our children changes directory timestamps. Recheck identity, not timestamps.
+            let current = rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+                .map_err(|error| Error::filesystem("recheck cleanup directory", path, error))?;
+            if !Self::same_identity(&self.metadata, &current) {
+                return Err(Error::SourceChanged {
+                    path: path.to_owned(),
+                });
+            }
+        }
+        // stat→unlink is not atomic with external writers; no cross-filesystem snapshot is promised.
+        // rmdir, unlike recursive deletion, cannot delete an uncopied late child.
+        rustix::fs::unlinkat(
+            parent,
+            name,
+            if directory {
+                AtFlags::REMOVEDIR
+            } else {
+                AtFlags::empty()
+            },
+        )
+        .map_err(|error| Error::filesystem("remove copied source", path, error))
     }
 }
 
