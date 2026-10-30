@@ -54,9 +54,21 @@ impl Attachment {
             ));
         }
         let mut data = Vec::new();
-        fs::File::open(path)?
-            .take(MAX_FILE_BYTES + 1)
-            .read_to_end(&mut data)?;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        // A path can become a FIFO after the initial metadata check. Never block
+        // opening it, and authorize the opened handle rather than the old path.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(nix::libc::O_NONBLOCK | nix::libc::O_NOCTTY);
+        }
+        let file = options.open(path)?;
+        let opened = file.metadata()?;
+        if !opened.is_file() || opened.len() > MAX_FILE_BYTES {
+            bail!(crate::i18n::tr!("attachment-size-limit"));
+        }
+        file.take(MAX_FILE_BYTES + 1).read_to_end(&mut data)?;
         if data.len() as u64 > MAX_FILE_BYTES {
             bail!(crate::i18n::tr!(
                 "attachment-file-limit",
