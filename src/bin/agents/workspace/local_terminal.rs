@@ -422,13 +422,14 @@ impl Workspace {
                         }
                     })),
             );
-        let header = controls.flex_none();
+        let header = controls.flex_none().bg(gds::theme::content_background(cx));
         let body = workspace
             .map(|workspace| workspace.panel.clone().into_any_element())
             .unwrap_or_else(|| {
                 div()
                     .size_full()
                     .p_3()
+                    .bg(gds::theme::content_background(cx))
                     .text_color(cx.theme().muted_foreground)
                     .child(if local_ipc(&self.backend.server.target) {
                         crate::i18n::tr!("local-terminal-no-cwd")
@@ -458,9 +459,13 @@ impl Workspace {
                     .child(body),
             );
         let divider = div().size_full().bg(gds::theme::content_background(cx));
+        let content = div()
+            .size_full()
+            .bg(gds::theme::content_background(cx))
+            .child(content);
         gds::ui::split::VerticalSplit::new(
             split,
-            content,
+            content.into_any_element(),
             dock.into_any_element(),
             crate::i18n::tr!("local-terminal-resize"),
         )
