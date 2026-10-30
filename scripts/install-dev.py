@@ -2,6 +2,7 @@
 """Install local launchers for Cargo's mutable debug binaries."""
 
 import argparse
+import errno
 import json
 import os
 from pathlib import Path
@@ -48,7 +49,20 @@ def restore(path, backup):
         raise RuntimeError(f"development entry changed externally; keeping {path}")
     original = json.loads(metadata.read_text())
     if original["exists"]:
-        backup.replace(path)
+        try:
+            backup.replace(path)
+        except OSError as error:
+            if error.errno != errno.EXDEV:
+                raise
+            # Stage on the destination filesystem, then publish atomically. Do
+            # not consume the backup until copying AND replacement succeed.
+            # copy2 without following links preserves relative/dangling links
+            # as well as the regular-file metadata saved by save_original.
+            with tempfile.TemporaryDirectory(dir=path.parent, prefix=".gds-restore-") as temporary:
+                staged = Path(temporary) / "original"
+                shutil.copy2(backup, staged, follow_symlinks=False)
+                staged.replace(path)
+            backup.unlink()
     else:
         path.unlink()
     metadata.unlink()
