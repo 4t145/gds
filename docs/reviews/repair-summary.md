@@ -23,7 +23,9 @@
 - 集成：首修 `f176238cafed7a75620c1cc8b5f43f7f31bed398`，独立复核补修 `413185fccef98982ab392d444cb9295e0de3d6b4`；[详细记录](<f04-watcher-fix.md>)。
 - 观察全部现存祖先目录，捕获链接本身的原子替换；refresh 更新目标观察。叶文件不存在时解析最近现存祖先并拼接剩余路径，避免路径缓存未变导致仍观察旧 inode。
 - **先红后绿**：真实 notify 原子切换首个通知超时，退出101；首修后2项通过。w6独立发现 absent-leaf 漏洞，补充缺失文件回归再次退出101；补修后3项通过。后续写新目标之前排空到150ms静默，避免迟到链接事件伪装新目标通知；首次未静默排空实验假通过已纠正。
-- 取舍：非递归 watch 数量按路径深度增加，去重且过滤无关事件；不新增轮询。Linux实测，不保证所有 notify 平台、队列溢出或极快连续切换中间态。crapper/dryer/scan 实际结果见分项：无真实覆盖率/CRAP，扫描6个位点不等于执行变异。
+- w6 独立相同 missing-file 实验和真实库3项测试均退出0：[先失败](<repair-evidence/gds-w6-f04-missing-runtime.log>)、[补修实验](<repair-evidence/gds-w6-f04-followup-probe.log>)、[补修测试](<repair-evidence/gds-w6-f04-followup-tests.log>)，原独立 fail Finding 已由 `f34ad559-5e6a-4bae-ac29-2db87789609c` 纠正。
+- 额外测试加固集成 `18dbfb2896ab426ef4424c8a412bdfca1801524f`：[4项真实通知测试](<f04-evidence/final-tests.log>)通过。实际过滤器变异最初1 killed/1 survived；新增无关事件不得通知的断言后[2/2 killed](<f04-evidence/mutation-final.log>)、退出0，生产逻辑不变。
+- 取舍：非递归 watch 数量按路径深度增加，去重且过滤无关事件；不新增轮询。Linux实测，不保证所有 notify 平台、队列溢出或极快连续切换中间态。crapper/dryer实际结果见分项：无真实覆盖率/CRAP；最初scan与后续有界实际mutation明确区分，不宣称全量位点覆盖。
 
 ## F-05：跨设备恢复开发入口
 
